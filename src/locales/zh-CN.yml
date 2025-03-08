@@ -1,4 +1,4 @@
-_config_mute:
+_config:
   $desc: "禁言配置"
   sleep:
     type:

@@ -1,4 +1,4 @@
-_config_mute:
+_config:
   $desc: "Mute Configuration"
   sleep:
     type:

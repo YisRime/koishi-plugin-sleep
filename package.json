@@ -21,7 +21,12 @@
   "keywords": [
     "chatbot",
     "koishi",
-    "plugin"
+    "plugin",
+    "sleep",
+    "mute",
+    "jzsm",
+    "精致睡眠",
+    "随机禁言"
   ],
   "devDependencies": {},
   "peerDependencies": {
