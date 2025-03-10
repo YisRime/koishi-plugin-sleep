@@ -212,7 +212,7 @@ export function calculateMuteDuration(config: Config, baseDuration?: number, isC
   const variation = Math.random() * 0.3 - 0.15
   duration = Math.round(duration * (1 + variation))
   // 确保最小5秒，最大设定上限
-  return Math.max(5, Math.min(duration, config.maxAllowedDuration * 60))
+  return Math.max(5, Math.min(duration, config.clag.maxAllowedDuration * 60))
 }
 
 /**
@@ -399,7 +399,7 @@ export async function executeAndRecordMute(
   // 计算最终禁言时长
   const finalDuration = calculateMuteDuration(config, undefined, isCritical)
   // 执行禁言
-  const success = await mute(session, targetId, finalDuration, config.enableMessage)
+  const success = await mute(session, targetId, finalDuration, config.clag.enableMessage)
 
   if (success) {
     // 显示特效消息

@@ -46,7 +46,7 @@ export function initializeSleepCommand(ctx: Context, config: Config) {
         // 验证时间段
         const now = new Date();
         const currentHour = now.getHours();
-        const [startHour, endHour] = config.allowedTimeRange.split('-').map(Number);
+        const [startHour, endHour] = config.sleep.allowedTimeRange.split('-').map(Number);
 
         const isTimeAllowed = startHour > endHour
           ? (currentHour >= startHour || currentHour <= endHour)  // 跨夜情况，如20-8
@@ -54,7 +54,7 @@ export function initializeSleepCommand(ctx: Context, config: Config) {
 
         if (!isTimeAllowed) {
           const message = await session.send(
-            `当前时间不在允许的时间段内(${config.allowedTimeRange})`
+            `当前时间不在允许的时间段内(${config.sleep.allowedTimeRange})`
           );
           await autoRecall(session, message);
           return;

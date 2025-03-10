@@ -49,8 +49,8 @@ export async function handleMuteOperation(
   rouletteSize?: number
 ): Promise<void> {
   // 验证禁言时长
-  if (duration && duration > config.maxAllowedDuration) {
-    const message = await session.send(session.text('commands.clag.messages.errors.duration_too_long', [config.maxAllowedDuration]))
+  if (duration && duration > config.clag.maxAllowedDuration) {
+    const message = await session.send(session.text('commands.clag.messages.errors.duration_too_long', [config.clag.maxAllowedDuration]))
     await autoRecall(session, message)
     return
   }
@@ -77,7 +77,7 @@ async function handleNormalMode(
   // 如果是自己禁言自己，直接执行
   if (inputTargetId === session.userId) {
     const muteDuration = calculateMuteDuration(config, duration)
-    await mute(session, session.userId, muteDuration, config.enableMessage)
+    await mute(session, session.userId, muteDuration, config.clag.enableMessage)
     // 显示自我惩罚提示
     if (config.clag.enableSpecialEffects) {
       const message = await session.send("自食其果！")
@@ -87,10 +87,10 @@ async function handleNormalMode(
   }
 
   // 随机决定是否禁言成功
-  if (!new Random().bool(config.probability)) {
+  if (!new Random().bool(config.clag.probability)) {
     // 禁言失败，反弹到发起者
     const muteDuration = calculateMuteDuration(config, duration)
-    const success = await mute(session, session.userId, muteDuration, config.enableMessage)
+    const success = await mute(session, session.userId, muteDuration, config.clag.enableMessage)
 
     if (success && config.clag.enableSpecialEffects) {
       const message = await session.send(`哎呀！${session.username}的禁言魔法反弹了！`)
@@ -107,7 +107,7 @@ async function handleNormalMode(
   const isCritical = config.clag.enableSpecialEffects && new Random().bool(config.clag.criticalHitProbability)
   // 执行禁言
   const muteDuration = calculateMuteDuration(config, duration, isCritical)
-  const success = await mute(session, finalTargetId, muteDuration, config.enableMessage)
+  const success = await mute(session, finalTargetId, muteDuration, config.clag.enableMessage)
 
   if (success) {
     // 特殊效果提示

@@ -26,16 +26,17 @@ export interface ClagConfig {
   enableSeasonalEvents: boolean
   criticalHitProbability: number
   rouletteSize: number
-}
-
-export interface Config {
-  sleep: SleepConfig
-  clag: ClagConfig
-  allowedTimeRange?: string
   maxAllowedDuration: number
   enableMessage: boolean
   enableMuteOthers: boolean
   probability: number
+}
+
+export interface Config {
+  sleep: SleepConfig & {
+    allowedTimeRange: string
+  }
+  clag: ClagConfig
 }
 
 // Schema配置定义
@@ -43,7 +44,8 @@ export const Config: Schema<Config> = Schema.object({
   sleep: Schema.intersect([
     Schema.object({
       type: Schema.union([SleepMode.STATIC, SleepMode.UNTIL, SleepMode.RANDOM]).description('精致睡眠模式'),
-    }).description('禁言配置').default({ type: SleepMode.STATIC }),
+      allowedTimeRange: Schema.string().default('20-8').pattern(/^([01]?[0-9]|2[0-3])-([01]?[0-9]|2[0-3])$/).description('允许睡眠的时间段(HH-HH)'),
+    }).description('睡眠配置').default({ type: SleepMode.STATIC, allowedTimeRange: '20-8' }),
     Schema.union([
       Schema.object({
         type: Schema.const(SleepMode.STATIC).required(),
@@ -67,13 +69,12 @@ export const Config: Schema<Config> = Schema.object({
     enableRoulette: Schema.boolean().default(true).description('启用禁言轮盘'),
     enableSeasonalEvents: Schema.boolean().default(true).description('启用节日特效'),
     criticalHitProbability: Schema.number().default(0.1).min(0).max(1).description('禁言暴击概率'),
-    rouletteSize: Schema.number().default(3).min(2).max(10).description('轮盘人数')
-  }),
-  allowedTimeRange: Schema.string().default('20-8').pattern(/^([01]?[0-9]|2[0-3])-([01]?[0-9]|2[0-3])$/).description('允许睡眠的时间段(HH-HH)'),
-  maxAllowedDuration: Schema.number().default(1440).description('最大普通禁言限制（分钟）'),
-  enableMessage: Schema.boolean().default(true).description('启用禁言提示'),
-  enableMuteOthers: Schema.boolean().default(true).description('允许禁言他人'),
-  probability: Schema.number().default(0.5).min(0).max(1).description('禁言成功概率'),
+    rouletteSize: Schema.number().default(3).min(2).max(10).description('轮盘人数'),
+    maxAllowedDuration: Schema.number().default(1440).description('最大普通禁言限制（分钟）'),
+    enableMessage: Schema.boolean().default(true).description('启用禁言提示'),
+    enableMuteOthers: Schema.boolean().default(true).description('允许禁言他人'),
+    probability: Schema.number().default(0.5).min(0).max(1).description('禁言成功概率'),
+  }).description('禁言配置'),
 })
 
 /**
@@ -96,7 +97,7 @@ export async function apply(ctx: Context, config: Config) {
   const clag = ctx.command('clag [target:text] [duration:number]')
     .channelFields(['guildId'])
     .action(async ({ session }, target, duration) => {
-      if (target && !config.enableMuteOthers) {
+      if (target && !config.clag.enableMuteOthers) {
         const message = await session.send("已禁用禁言他人功能")
         await autoRecall(session, message)
         return
