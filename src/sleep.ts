@@ -1,6 +1,6 @@
 import { Context } from 'koishi'
 import { Config } from './index'
-import { autoRecall } from './mute'
+import { autoRecall } from './utils'
 
 /**
  * 睡眠模式类型枚举
@@ -59,14 +59,13 @@ export function initializeSleepCommand(ctx: Context, config: Config) {
           await autoRecall(session, message);
           return;
         }
-
         // 计算禁言时长
         let duration: number;
         const sleep = config.sleep;
 
         switch (sleep.type) {
           case SleepMode.STATIC:
-            duration = Math.max(1, sleep.duration) * 60 * 60; // 转为秒
+            duration = Math.max(1, sleep.duration) * 60 * 60;
             break;
 
           case SleepMode.UNTIL:
@@ -81,12 +80,11 @@ export function initializeSleepCommand(ctx: Context, config: Config) {
             break;
 
           case SleepMode.RANDOM:
-            const min = Math.max(1, sleep.min) * 60 * 60; // 转为秒
-            const max = Math.max(sleep.min, sleep.max) * 60 * 60; // 转为秒
+            const min = Math.max(1, sleep.min) * 60 * 60;
+            const max = Math.max(sleep.min, sleep.max) * 60 * 60;
             duration = Math.floor(Math.random() * (max - min + 1) + min);
             break;
         }
-
         // 执行禁言
         await session.bot.muteGuildMember(session.guildId, session.userId, duration * 1000);
         return "晚安，快去睡觉吧，祝你好梦";

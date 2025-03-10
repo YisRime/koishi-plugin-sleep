@@ -67,7 +67,6 @@ export const autoRecall = async (session: Session, message: any, delay = 10000) 
 export const getGuildMembers = async (session: Session): Promise<string[]> => {
   const cacheKey = `${session.platform}:${session.guildId}`
   const cached = memberCache.get(cacheKey)
-
   // 优先使用缓存
   if (cached?.expiry > Date.now()) {
     return cached.data;
@@ -75,7 +74,6 @@ export const getGuildMembers = async (session: Session): Promise<string[]> => {
 
   try {
     const members: string[] = [];
-
     // 使用异步迭代器获取成员列表
     for await (const member of session.bot.getGuildMemberIter(session.guildId)) {
       const userId = member.user?.id;
@@ -83,12 +81,11 @@ export const getGuildMembers = async (session: Session): Promise<string[]> => {
         members.push(String(userId));
       }
     }
-
-    // 如果找到成员，缓存结果
+    // 缓存结果
     if (members.length > 0) {
       memberCache.set(cacheKey, {
         data: members,
-        expiry: Date.now() + 3600000 // 缓存1小时
+        expiry: Date.now() + 3600000
       });
       return members;
     }
@@ -200,7 +197,6 @@ export async function resolveMuteTarget(session: Session, targetInput?: string):
  */
 export function calculateMuteDuration(config: Config, baseDuration?: number, isCriticalHit = false): number {
   let duration = baseDuration ? baseDuration * 60 : new Random().int(config.clag.min * 60, config.clag.max * 60)
-
   // 特殊节日效果
   if (config.clag.enableSeasonalEvents) {
     const effect = getCurrentSeasonalEffect()
@@ -208,16 +204,13 @@ export function calculateMuteDuration(config: Config, baseDuration?: number, isC
       duration = Math.round(duration * effect.multiplier)
     }
   }
-
   // 暴击效果
   if (isCriticalHit) {
     duration = Math.round(duration * 2)
   }
-
   // 添加随机波动 (±15%)
   const variation = Math.random() * 0.3 - 0.15
   duration = Math.round(duration * (1 + variation))
-
   // 确保最小5秒，最大设定上限
   return Math.max(5, Math.min(duration, config.maxAllowedDuration * 60))
 }
@@ -233,11 +226,10 @@ export function recordMute(session: Session, targetId: string, duration: number,
     timestamp: Date.now(),
     duration
   })
-
   // 设置过期清理
   setTimeout(() => {
     muteHistory.delete(historyKey)
-  }, 7 * 24 * 60 * 60 * 1000) // 7天后清理
+  }, 7 * 24 * 60 * 60 * 1000)
 }
 
 /**
@@ -319,4 +311,110 @@ export function formatDuration(seconds: number): { minutes: number, seconds: num
   const minutes = Math.floor(seconds / 60)
   const remainingSeconds = seconds % 60
   return { minutes, seconds: remainingSeconds }
+}
+
+/**
+ * 选择禁言参与者
+ * @param session 会话对象
+ * @param members 成员列表
+ * @param count 参与人数
+ * @param includeInitiator 是否包含发起者
+ */
+export async function selectParticipants(
+  session: Session,
+  members: string[],
+  count: number,
+  includeInitiator: boolean = true
+): Promise<string[]> {
+  // 参与人数不能超过有效成员数
+  const participantCount = Math.min(count, members.length)
+  const participants: string[] = []
+  // 确保发起者在内(如果需要)
+  if (includeInitiator && !members.includes(session.userId)) {
+    participants.push(session.userId)
+  }
+  // 筛选可用成员
+  const availableMembers = includeInitiator
+    ? members.filter(id => id !== session.userId)
+    : [...members]
+  // 随机选择参与者
+  while (participants.length < participantCount && availableMembers.length > 0) {
+    const index = new Random().int(0, availableMembers.length - 1)
+    participants.push(availableMembers[index])
+    availableMembers.splice(index, 1)
+  }
+  // 打乱顺序
+  return participants.sort(() => Math.random() - 0.5)
+}
+
+/**
+ * 模拟轮盘旋转效果
+ * @param session 会话对象
+ * @param participants 参与者
+ */
+export async function simulateRoulette(session: Session, participants: string[]): Promise<void> {
+  const iterations = new Random().int(2, 4)
+  for (let i = 0; i < iterations; i++) {
+    const randomIndex = new Random().int(0, participants.length - 1)
+    const currentName = await getUserName(session, participants[randomIndex])
+    const indicatorMsg = await session.send(`指针指向了...${currentName}`)
+    await autoRecall(session, indicatorMsg, 800)
+    await new Promise(resolve => setTimeout(resolve, 1000))
+  }
+}
+
+/**
+ * 选择最终目标
+ * @param participants 参与者列表
+ * @param config 配置
+ */
+export function selectFinalTarget(
+  participants: string[],
+  config: Config
+): { targetId: string; isCritical: boolean } {
+  // 随机选择最终禁言目标
+  const victimIndex = new Random().int(0, participants.length - 1)
+  const targetId = participants[victimIndex]
+  // 随机决定是否暴击
+  const isCritical = config.clag.enableSpecialEffects &&
+                    new Random().bool(config.clag.criticalHitProbability)
+
+  return { targetId, isCritical }
+}
+
+/**
+ * 执行禁言操作并处理结果
+ * @param session 会话对象
+ * @param config 配置
+ * @param targetId 目标ID
+ * @param duration 持续时间
+ * @param isCritical 是否暴击
+ */
+export async function executeAndRecordMute(
+  session: Session,
+  config: Config,
+  targetId: string,
+  isCritical: boolean = false
+): Promise<boolean> {
+  // 计算最终禁言时长
+  const finalDuration = calculateMuteDuration(config, undefined, isCritical)
+  // 执行禁言
+  const success = await mute(session, targetId, finalDuration, config.enableMessage)
+
+  if (success) {
+    // 显示特效消息
+    if (config.clag.enableSpecialEffects) {
+      await showEffectMessage(session, targetId, isCritical, true)
+    }
+    // 记录禁言历史
+    recordMute(session, targetId, finalDuration, session.userId)
+    // 发送最终结果
+    const victimName = await getUserName(session, targetId)
+    const time = formatDuration(finalDuration)
+    await session.send(
+      `最终结果：${victimName}被禁言${time.minutes}分钟${time.seconds}秒 ${isCritical ? "暴击！禁言时间翻倍！" : ""}`
+    )
+  }
+
+  return success
 }

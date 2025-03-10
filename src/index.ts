@@ -2,13 +2,11 @@
  * 睡眠与禁言功能插件
  * @module sleep
  */
-
 import { Context, Schema } from 'koishi'
 import { handleMuteOperation, initializeClagFeatures } from './clag'
-import { autoRecall, initializeSeasonalEvents, initializeCacheCleanup } from './mute'
+import { autoRecall, initializeSeasonalEvents, initializeCacheCleanup } from './utils'
 import { SleepMode, SleepConfig, initializeSleepCommand } from './sleep'
 
-// 插件元数据定义
 export const name = 'sleep'
 
 /**
@@ -30,7 +28,6 @@ export interface ClagConfig {
   rouletteSize: number
 }
 
-// 导出配置接口，使其可被其他模块使用
 export interface Config {
   sleep: SleepConfig
   clag: ClagConfig
@@ -85,16 +82,10 @@ export const Config: Schema<Config> = Schema.object({
  * @param {Config} config - 插件配置
  */
 export async function apply(ctx: Context, config: Config) {
-  // 初始化缓存清理
   initializeCacheCleanup()
-
-  // 初始化睡眠命令
   initializeSleepCommand(ctx, config)
-
-  // 初始化clag高级功能
   initializeClagFeatures(ctx, config)
 
-  // 如果启用节日特效，则初始化节日检查器
   if (config.clag.enableSeasonalEvents) {
     initializeSeasonalEvents(ctx)
   }
@@ -105,13 +96,11 @@ export async function apply(ctx: Context, config: Config) {
   const clag = ctx.command('clag [target:text] [duration:number]')
     .channelFields(['guildId'])
     .action(async ({ session }, target, duration) => {
-      // 当指定目标且禁用禁言他人功能时，显示错误
       if (target && !config.enableMuteOthers) {
         const message = await session.send("已禁用禁言他人功能")
         await autoRecall(session, message)
         return
       }
-      // 如果未指定目标，传入自己的用户ID作为目标
       const actualTarget = target || session.userId
       await handleMuteOperation(session, config, actualTarget, duration, ClagFeature.NORMAL)
     })
