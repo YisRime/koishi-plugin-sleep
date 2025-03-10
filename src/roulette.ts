@@ -1,14 +1,14 @@
 import { Session, Random } from 'koishi'
-import { Config } from '../index'
-import { mute, autoRecall, getGuildMembers } from '../mute'
+import { Config } from './index'
 import {
-  hasImmunity,
+  mute,
+  autoRecall,
+  getGuildMembers,
   calculateMuteDuration,
   recordMute,
   getUserName,
-  selectRandomTarget
-} from './utils'
-import { grantChainReactionRight } from './chain'
+  formatDuration
+} from './mute'
 
 /**
  * 执行禁言轮盘
@@ -24,7 +24,7 @@ export async function executeRouletteMode(
 
     // 检查是否有足够的成员
     if (validMembers.length < 2) {
-      const message = await session.send(session.text('commands.clag.messages.errors.not_enough_members'))
+      const message = await session.send("群内成员不足，无法启动轮盘")
       await autoRecall(session, message)
       return { success: false }
     }
@@ -34,7 +34,7 @@ export async function executeRouletteMode(
 
     // 发送轮盘启动消息
     const participantsNames = await Promise.all(participants.map(id => getUserName(session, id)))
-    await session.send(session.text('commands.clag.roulette.start', [participantsNames.join('、')]))
+    await session.send(`禁言轮盘已启动！参与者：${participantsNames.join('、')}`)
 
     // 模拟转盘效果
     await simulateRoulette(session, participants)
@@ -56,22 +56,8 @@ export async function executeRouletteMode(
     if (success) {
       // 发送最终结果
       const victimName = await getUserName(session, targetInfo.targetId)
-      await session.send(session.text('commands.clag.roulette.result', [
-        victimName,
-        Math.floor(muteDuration / 60),
-        muteDuration % 60,
-        targetInfo.isCritical ? session.text('commands.clag.effects.critical_hit') : ''
-      ]))
-
-      // 如果启用连锁禁言，给予复仇权利
-      if (config.clag.enableChainReaction) {
-        grantChainReactionRight(
-          session,
-          targetInfo.targetId,
-          session.userId,
-          config.clag.chainReactionExpiry
-        )
-      }
+      const time = formatDuration(muteDuration)
+      await session.send(`最终结果：${victimName}被禁言${time.minutes}分钟${time.seconds}秒 ${targetInfo.isCritical ? "暴击！禁言时间翻倍！" : ""}`)
 
       // 记录禁言历史
       recordMute(session, targetInfo.targetId, muteDuration, session.userId)
@@ -122,7 +108,7 @@ async function simulateRoulette(session: Session, participants: string[]): Promi
   for (let i = 0; i < iterations; i++) {
     const randomIndex = new Random().int(0, participants.length - 1)
     const currentName = await getUserName(session, participants[randomIndex])
-    const indicatorMsg = await session.send(session.text('commands.clag.roulette.spinning', [currentName]))
+    const indicatorMsg = await session.send(`指针指向了...${currentName}`)
     await autoRecall(session, indicatorMsg, 800)
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
@@ -139,22 +125,6 @@ async function selectFinalTarget(
   // 随机选择最终禁言目标
   let victimIndex = new Random().int(0, participants.length - 1)
   let targetId = participants[victimIndex]
-
-  // 检查是否有免疫
-  if (hasImmunity(targetId, session.guildId, session.platform)) {
-    const immuneUserName = await getUserName(session, targetId)
-    await session.send(session.text('commands.clag.effects.immunity', [immuneUserName]))
-
-    // 重新选择，排除免疫者
-    const newParticipants = participants.filter(id => id !== targetId)
-    if (newParticipants.length === 0) {
-      await session.send(session.text('commands.clag.roulette.all_immune'))
-      return { targetId: undefined, isCritical: false }
-    }
-
-    victimIndex = new Random().int(0, newParticipants.length - 1)
-    targetId = newParticipants[victimIndex]
-  }
 
   // 随机决定是否暴击
   const isCritical = config.clag.enableSpecialEffects &&
