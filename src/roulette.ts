@@ -1,8 +1,13 @@
 import { Context, Session } from 'koishi'
 import { Config } from './index'
 import globalCache from './cache'
-import { autoRecall, mute, getUserName, calculateMuteDuration, formatDuration } from './utils'
-import { getRandomMessage } from './messages'
+import {
+  MessageService,
+  MuteService,
+  UserService,
+  TimeUtil,
+  RandomUtil
+} from './utils'
 
 // 轮盘游戏会话接口
 interface RouletteSession {
@@ -70,7 +75,7 @@ export function initializeRouletteCommand(ctx: Context, config: Config) {
     const joined = joinRouletteSession(session)
     if (joined) {
       const msg = await session.send(`${session.username} 加入了禁言轮盘！`)
-      await autoRecall(session, msg, 3000)
+      await MessageService.autoRecall(session, msg, 3000)
       return
     }
 
@@ -218,12 +223,12 @@ function spinRoulette(participants: string[], bulletCount: number): RouletteResu
 async function announceRouletteResult(session: Session, result: RouletteResult) {
   // 获取用户名
   const victimNames = await Promise.all(
-    result.victims.map(id => getUserName(session, id))
+    result.victims.map(id => UserService.getUserName(session, id))
   )
 
   // 构建结果消息
   let message = `🎯 禁言轮盘结果揭晓！\n`
-  message += `${getRandomMessage('roulette', 'result', {})}\n\n`
+  message += `${MessageService.getRandomMessage('roulette', 'result', {})}\n\n`
   message += `🔴 中弹成员: ${victimNames.join(', ')}\n`
 
   await session.send(message)
@@ -240,16 +245,20 @@ async function executeRouletteMutes(session: Session, victims: string[], duratio
       const config = session.app.config.get('sleep')
       const muteDuration = duration ?
         duration * 60 : // 如果有指定时长，使用分钟转秒
-        calculateMuteDuration(config, undefined, Math.random() < 0.2) // 20%概率暴击
+        MuteService.calculateDuration(config, {
+          isCriticalHit: RandomUtil.withProbability(0.2) // 20%概率暴击
+        })
 
       // 执行禁言
-      await mute(session, victim, muteDuration, true)
+      await MuteService.mute(session, victim, muteDuration, {
+        enableMessage: true
+      })
 
       // 发送禁言信息
-      const { minutes, seconds } = formatDuration(muteDuration)
-      const victimName = await getUserName(session, victim)
+      const { minutes, seconds } = TimeUtil.formatDuration(muteDuration)
+      const victimName = await UserService.getUserName(session, victim)
 
-      await session.send(getRandomMessage('roulette', 'mute', {
+      await session.send(MessageService.getRandomMessage('roulette', 'mute', {
         target: victimName,
         minutes: String(minutes),
         seconds: String(seconds)

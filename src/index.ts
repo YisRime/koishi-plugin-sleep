@@ -1,6 +1,5 @@
 import { Context, Schema } from 'koishi'
-import { handleMuteOperation, initializeClagFeatures } from './clag'
-import { autoRecall } from './utils'
+import { initializeClagFeatures } from './clag'
 import { SleepMode, SleepConfig, initializeSleepCommand } from './sleep'
 import { initializeCache } from './cache'
 import { initializeRouletteCommand } from './roulette'

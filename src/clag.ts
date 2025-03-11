@@ -1,15 +1,12 @@
-import { Context, Session, Random } from 'koishi'
+import { Context, Session } from 'koishi'
 import { Config } from './index'
 import {
-  mute,
-  autoRecall,
-  calculateMuteDuration,
-  recordMute,
-  resolveMuteTarget,
-  showEffectMessage,
-  getUserName
+  MuteService,
+  UserService,
+  MessageService,
+  RandomUtil,
+  TimeUtil
 } from './utils'
-import { getRandomMessage } from './messages'
 
 /**
  * 禁言目标类型
@@ -53,7 +50,7 @@ export async function handleMuteOperation(
   forceSelf: boolean = false
 ): Promise<void> {
   // 解析目标ID
-  const inputTargetId = targetInput ? await resolveMuteTarget(session, targetInput) : session.userId
+  const inputTargetId = targetInput ? await UserService.resolveTarget(session, targetInput) : session.userId
 
   // 确定最终的禁言目标类型和是否为反弹
   const { targetType, isBackfire } = await determineTargetType(session, inputTargetId, config, forceSelf)
@@ -77,8 +74,7 @@ async function determineTargetType(
   }
 
   // 随机决定是否改变目标（反弹到自己）
-  const random = new Random();
-  if (random.bool(config.clag.targetChangeRate)) {
+  if (RandomUtil.withProbability(config.clag.targetChangeRate)) {
     // 禁言反弹到自己
     return { targetType: MuteTargetType.SELF, isBackfire: true };
   } else {
@@ -99,19 +95,25 @@ async function executeTargetedMute(
   isBackfire: boolean = false
 ): Promise<void> {
   // 随机决定是否暴击
-  const isCritical = new Random().bool(config.clag.criticalHitProbability)
+  const isCritical = RandomUtil.withProbability(config.clag.criticalHitProbability)
 
   // 计算禁言时长
-  const muteDuration = calculateMuteDuration(config, duration, isCritical)
+  const muteDuration = MuteService.calculateDuration(config, {
+    baseDuration: duration,
+    isCriticalHit: isCritical
+  })
+
+  // 格式化时间用于展示
+  const { minutes, seconds } = TimeUtil.formatDuration(muteDuration)
 
   // 根据不同的目标类型执行禁言
   switch (targetType) {
     case MuteTargetType.SELF:
-      await executeSelfMute(session, config, muteDuration, inputTargetId, isBackfire)
+      await executeSelfMute(session, config, muteDuration, inputTargetId, isBackfire, { minutes, seconds })
       break
 
     case MuteTargetType.SPECIFIED:
-      await executeSpecifiedTargetMute(session, config, inputTargetId, muteDuration, isCritical)
+      await executeSpecifiedTargetMute(session, config, inputTargetId, muteDuration, isCritical, { minutes, seconds })
       break
   }
 }
@@ -124,29 +126,43 @@ async function executeSelfMute(
   config: Config,
   muteDuration: number,
   targetId?: string,
-  isBackfire: boolean = false
+  isBackfire: boolean = false,
+  timeInfo?: { minutes: number, seconds: number }
 ): Promise<void> {
-  const success = await mute(session, session.userId, muteDuration, config.clag.enableMessage)
+  try {
+    const success = await MuteService.mute(session, session.userId, muteDuration, {
+      enableMessage: config.clag.enableMessage,
+      recordHistory: true
+    })
 
-  if (success) {
-    let message;
-
-    if (isBackfire && targetId) {
-      // 显示反弹效果消息
-      const targetName = await getUserName(session, targetId)
-      message = await session.send(getRandomMessage('mute', 'backfire', {
-        user: session.username,
-        target: targetName
-      }))
-      await autoRecall(session, message, 5000)
+    if (success) {
+      if (isBackfire && targetId) {
+        // 显示反弹效果消息
+        const targetName = await UserService.getUserName(session, targetId)
+        // 修复: 使用正确的消息类别和变量
+        await session.send(MessageService.getRandomMessage('mute', 'backfire', {
+          user: session.username,
+          target: targetName,
+          minutes: String(timeInfo?.minutes || 0),
+          seconds: String(timeInfo?.seconds || 0)
+        }))
+      } else {
+        // 显示自我惩罚提示
+        // 修复: 使用正确的消息类别和变量
+        await session.send(MessageService.getRandomMessage('effects', 'selfPunish', {
+          minutes: String(timeInfo?.minutes || 0),
+          seconds: String(timeInfo?.seconds || 0)
+        }))
+      }
     } else {
-      // 显示自我惩罚提示
-      message = await session.send(getRandomMessage('effects', 'selfPunish', {}))
-      await autoRecall(session, message, 3000)
+      // 禁言失败提示
+      await MessageService.sendAndRecall(session, '禁言失败，请检查机器人权限或目标是否可被禁言', 5000)
     }
-
-    // 记录禁言历史
-    recordMute(session, session.userId, muteDuration)
+  } catch (error) {
+    console.error('Self mute failed:', error)
+    // 修复: 安全地访问error信息
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    await MessageService.sendAndRecall(session, '执行禁言时发生错误: ' + errorMsg, 5000)
   }
 }
 
@@ -158,12 +174,47 @@ async function executeSpecifiedTargetMute(
   config: Config,
   targetId: string,
   muteDuration: number,
-  isCritical: boolean
+  isCritical: boolean,
+  timeInfo?: { minutes: number, seconds: number }
 ): Promise<void> {
-  const success = await mute(session, targetId, muteDuration, config.clag.enableMessage)
+  try {
+    // 尝试获取目标用户名
+    const username = await UserService.getUserName(session, targetId)
 
-  if (success) {
-    await showEffectMessage(session, targetId, isCritical, true)
-    recordMute(session, targetId, muteDuration, session.userId)
+    const success = await MuteService.mute(session, targetId, muteDuration, {
+      enableMessage: config.clag.enableMessage,
+      recordHistory: true
+    })
+
+    if (success) {
+      // 准备展示效果消息
+      if (isCritical) {
+        // 暴击效果消息
+        // 修复: 使用正确的消息发送方式
+        await session.send(MessageService.getRandomMessage('effects', 'critical', {
+          user: session.username,
+          target: username,
+          minutes: String(timeInfo?.minutes || 0),
+          seconds: String(timeInfo?.seconds || 0)
+        }))
+      } else {
+        // 普通禁言效果消息
+        // 修复: 使用正确的消息发送方式
+        await session.send(MessageService.getRandomMessage('effects', 'success', {
+          user: session.username,
+          target: username,
+          minutes: String(timeInfo?.minutes || 0),
+          seconds: String(timeInfo?.seconds || 0)
+        }))
+      }
+    } else {
+      // 禁言失败提示
+      await MessageService.sendAndRecall(session, `禁言 ${username} 失败，请检查权限或目标是否可被禁言`, 5000)
+    }
+  } catch (error) {
+    console.error('Target mute failed:', error)
+    // 修复: 安全地访问error信息
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    await MessageService.sendAndRecall(session, '执行禁言时发生错误: ' + errorMsg, 5000)
   }
 }

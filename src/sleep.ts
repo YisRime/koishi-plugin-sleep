@@ -1,6 +1,6 @@
 import { Context } from 'koishi'
 import { Config } from './index'
-import { autoRecall } from './utils'
+import { MessageService, TimeUtil } from './utils'
 
 /**
  * 睡眠模式类型枚举
@@ -37,16 +37,15 @@ export function initializeSleepCommand(ctx: Context, config: Config) {
       try {
         const now = new Date();
         const currentHour = now.getHours();
-        const [startHour, endHour] = config.sleep.allowedTimeRange.split('-').map(Number);
-        const isTimeAllowed = startHour > endHour
-          ? (currentHour >= startHour || currentHour <= endHour)  // 跨夜情况，如20-8
-          : (currentHour >= startHour && currentHour <= endHour); // 普通情况，如9-18
+
+        // 使用TimeUtil验证时间范围
+        const isTimeAllowed = TimeUtil.isWithinTimeRange(config.sleep.allowedTimeRange);
 
         if (!isTimeAllowed) {
           const message = await session.send(
             `当前时间不在允许的时间段内(${config.sleep.allowedTimeRange})`
           );
-          await autoRecall(session, message);
+          await MessageService.autoRecall(session, message);
           return;
         }
         let duration: number;
@@ -68,7 +67,7 @@ export function initializeSleepCommand(ctx: Context, config: Config) {
       } catch (error) {
         console.error('Sleep command error:', error);
         const message = await session.send('失败，请检查机器人权限');
-        await autoRecall(session, message);
+        await MessageService.autoRecall(session, message);
         return;
       }
     });

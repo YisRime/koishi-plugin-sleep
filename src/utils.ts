@@ -1,214 +1,335 @@
 import { Session, Random, h } from 'koishi'
 import { Config } from './index'
-import { getRandomMessage } from './messages'
 import globalCache from './cache'
+import { templates } from './messages'
 
-// 缓存存储名称常量
-const MEMBER_CACHE = 'members'
-const MUTE_HISTORY = 'muteHistory'
-
-/**
- * 自动撤回消息
- */
-export const autoRecall = async (session: Session, message: any, delay = 10000) => {
-  if (!message) return
-  const timer = setTimeout(async () => {
-    try {
-      const messages = Array.isArray(message) ? message : [message]
-      await Promise.all(messages.map(msg => {
-        const msgId = typeof msg === 'string' ? msg : msg?.id
-        if (msgId) return session.bot.deleteMessage(session.channelId, msgId)
-      }))
-    } catch (error) {
-      console.warn('Auto recall failed:', error)
-    }
-  }, delay)
-  return () => clearTimeout(timer)
+// 缓存键常量
+export const CACHE_KEYS = {
+  MEMBERS: 'members',
+  MUTE_HISTORY: 'muteHistory',
+  USERNAMES: 'usernames'
 }
 
 /**
- * 获取成员列表
+ * 消息服务类 - 处理所有与消息相关的操作
  */
-export const getGuildMembers = async (session: Session): Promise<string[]> => {
-  const cacheKey = `${session.platform}:${session.guildId}`
-  // 检查缓存
-  const cachedMembers = globalCache.get<string[]>(MEMBER_CACHE, cacheKey)
-  if (cachedMembers) {
-    return cachedMembers
-  }
-
-  try {
-    const members: string[] = []
-    // 使用异步迭代器获取成员列表
-    for await (const member of session.bot.getGuildMemberIter(session.guildId)) {
-      const userId = member.user?.id
-      if (userId && String(userId) !== String(session.selfId)) {
-        members.push(String(userId))
-      }
+export class MessageService {
+  /**
+   * 获取随机消息并替换变量
+   */
+  static getRandomMessage(
+    category: string,
+    subCategory: string,
+    variables: Record<string, string> = {}
+  ): string {
+    // 修复: 改进类型检查和错误处理
+    const templatesObj = templates as Record<string, Record<string, string[]>>
+    if (!templatesObj[category] || !templatesObj[category][subCategory]) {
+      return `消息模板未找到: ${category}.${subCategory}`;
     }
 
-    // 缓存结果 (一小时过期)
-    if (members.length > 0) {
-      globalCache.set(MEMBER_CACHE, cacheKey, members, 3600000)
-      return members
-    }
+    const messageArray = templatesObj[category][subCategory];
+    const message = messageArray[Math.floor(Math.random() * messageArray.length)];
 
-    return [session.userId]
-  } catch (error) {
-    console.error('Failed to get guild members:', error)
-    return [session.userId]
+    // 替换变量
+    return message.replace(/\{(\w+)\}/g, (_, key) =>
+      variables[key] !== undefined ? variables[key] : `{${key}}`
+    );
   }
-}
 
-/**
- * 执行禁言
- */
-export const mute = async (session: Session, targetId: string, duration: number, enableMessage: boolean) => {
-  try {
-    await session.bot.muteGuildMember(session.guildId, targetId, duration * 1000)
-    session.messageId && await session.bot.deleteMessage(session.channelId, session.messageId)
-
-    if (enableMessage) {
-      const [min, sec] = [(duration / 60) | 0, duration % 60]
-      const isSelf = targetId === session.userId
-
-      let username = isSelf ? session.username : targetId
+  /**
+   * 自动撤回消息
+   */
+  static async autoRecall(session: Session, message: any, delay = 10000) {
+    if (!message) return
+    const timer = setTimeout(async () => {
       try {
-        if (!isSelf) {
-          const user = await session.app.database.getUser(session.platform, targetId)
-          username = user?.name || targetId
+        const messages = Array.isArray(message) ? message : [message]
+        await Promise.all(messages.map(msg => {
+          const msgId = typeof msg === 'string' ? msg : msg?.id
+          if (msgId) return session.bot.deleteMessage(session.channelId, msgId)
+        }))
+      } catch (error) {
+        console.warn('Auto recall failed:', error)
+      }
+    }, delay)
+    return () => clearTimeout(timer)
+  }
+
+  /**
+   * 发送并自动撤回消息
+   */
+  static async sendAndRecall(session: Session, content: string, recallDelay = 10000): Promise<any> {
+    const message = await session.send(content)
+    await this.autoRecall(session, message, recallDelay)
+    return message
+  }
+
+  /**
+   * 显示特效消息
+   * @deprecated 推荐直接使用session.send结合getRandomMessage
+   */
+  static async showEffect(
+    session: Session,
+    category: string,
+    subType: string,
+    variables: Record<string, string> = {},
+    recallDelay = 5000
+  ): Promise<void> {
+    const content = this.getRandomMessage(category, subType, variables)
+    const message = await session.send(content)
+    await this.autoRecall(session, message, recallDelay)
+  }
+}
+
+/**
+ * 用户服务类 - 处理用户相关信息
+ */
+export class UserService {
+  /**
+   * 获取成员列表
+   */
+  static async getGuildMembers(session: Session): Promise<string[]> {
+    const cacheKey = `${session.platform}:${session.guildId}`
+    // 检查缓存
+    const cachedMembers = globalCache.get<string[]>(CACHE_KEYS.MEMBERS, cacheKey)
+    if (cachedMembers) {
+      return cachedMembers
+    }
+
+    try {
+      const members: string[] = []
+      // 使用异步迭代器获取成员列表
+      for await (const member of session.bot.getGuildMemberIter(session.guildId)) {
+        const userId = member.user?.id
+        if (userId && String(userId) !== String(session.selfId)) {
+          members.push(String(userId))
         }
-      } catch (e) {
-        console.warn('Failed to get username:', e)
       }
 
-      const messageContent = getRandomMessage(
-        'mute',
-        isSelf ? 'self' : 'success',
-        {
-          target: username,
-          minutes: String(min),
-          seconds: String(sec)
-        }
-      )
+      // 缓存结果 (一小时过期)
+      if (members.length > 0) {
+        globalCache.set(CACHE_KEYS.MEMBERS, cacheKey, members, 3600000)
+        return members
+      }
 
-      const msg = await session.send(messageContent)
-      await autoRecall(session, msg)
+      return [session.userId]
+    } catch (error) {
+      console.error('Failed to get guild members:', error)
+      return [session.userId]
     }
-    return true
-  } catch (error) {
-    console.error('Mute operation failed:', error)
-    return false
+  }
+
+  /**
+   * 解析目标用户ID - 支持文本ID或at标签
+   */
+  static async resolveTarget(session: Session, targetInput?: string): Promise<string> {
+    if (!targetInput) return session.userId
+
+    const parsed = h.parse(targetInput)[0]
+    return parsed?.type === 'at' ? parsed.attrs.id : targetInput.trim()
+  }
+
+  /**
+   * 获取用户名
+   */
+  static async getUserName(session: Session, userId: string): Promise<string> {
+    if (userId === session.userId) return session.username
+    if (userId === 'system') return '系统'
+
+    // 尝试从缓存获取用户名
+    const cacheKey = `${session.platform}:${userId}:name`
+    const cachedName = globalCache.get<string>(CACHE_KEYS.USERNAMES, cacheKey)
+    if (cachedName) return cachedName
+
+    try {
+      const user = await session.app.database.getUser(session.platform, userId)
+      const name = user?.name || userId
+
+      // 缓存用户名（1小时）
+      globalCache.set(CACHE_KEYS.USERNAMES, cacheKey, name, 3600000)
+      return name
+    } catch {
+      return userId
+    }
   }
 }
 
 /**
- * 获取禁言对象
+ * 禁言服务类 - 处理禁言相关功能
  */
-export async function resolveMuteTarget(session: Session, targetInput?: string): Promise<string> {
-  if (!targetInput) return session.userId
+export class MuteService {
+  /**
+   * 执行禁言并处理相关逻辑
+   */
+  static async mute(
+    session: Session,
+    targetId: string,
+    duration: number,
+    options: {
+      enableMessage?: boolean,
+      recordHistory?: boolean,
+      messageCategory?: string,
+      messageType?: string,
+      deleteOriginalMessage?: boolean
+    } = {}
+  ): Promise<boolean> {
+    const {
+      enableMessage = false,
+      recordHistory = false,
+      messageCategory = 'mute',
+      messageType = 'success',
+      deleteOriginalMessage = true
+    } = options;
 
-  const parsed = h.parse(targetInput)[0]
-  return parsed?.type === 'at' ? parsed.attrs.id : targetInput.trim()
-}
+    try {
+      await session.bot.muteGuildMember(session.guildId, targetId, duration * 1000)
 
-/**
- * 计算禁言时长
- */
-export function calculateMuteDuration(config: Config, baseDuration?: number, isCriticalHit = false): number {
-  let duration = baseDuration ? baseDuration * 60 : new Random().int(config.clag.min * 60, config.clag.max * 60)
+      // 删除触发消息
+      if (deleteOriginalMessage && session.messageId) {
+        await session.bot.deleteMessage(session.channelId, session.messageId)
+      }
 
-  // 暴击效果
-  if (isCriticalHit) {
-    duration = Math.round(duration * 2)
+      // 记录禁言历史
+      if (recordHistory) {
+        this.recordMute(session, targetId, duration)
+      }
+
+      // 发送禁言提示
+      if (enableMessage) {
+        const { minutes, seconds } = TimeUtil.formatDuration(duration)
+        const isSelf = targetId === session.userId
+
+        let username = await UserService.getUserName(session, targetId)
+
+        // 发送禁言消息
+        const messageContent = MessageService.getRandomMessage(
+          messageCategory as keyof typeof templates,
+          isSelf ? 'self' : messageType,
+          {
+            target: username,
+            minutes: String(minutes),
+            seconds: String(seconds)
+          }
+        )
+
+        const msg = await session.send(messageContent)
+        await MessageService.autoRecall(session, msg)
+      }
+      return true
+    } catch (error) {
+      console.error('Mute operation failed:', error)
+      return false
+    }
   }
 
-  // 添加随机波动 (±15%)
-  const variation = Math.random() * 0.3 - 0.15
-  duration = Math.round(duration * (1 + variation))
+  /**
+   * 计算禁言时长
+   */
+  static calculateDuration(
+    config: Config,
+    options: {
+      baseDuration?: number,
+      isCriticalHit?: boolean,
+      randomVariation?: boolean
+    } = {}
+  ): number {
+    const { baseDuration, isCriticalHit = false, randomVariation = true } = options;
 
-  // 确保最小5秒
-  return Math.max(5, duration)
-}
+    let duration = baseDuration ?
+      baseDuration * 60 :
+      new Random().int(config.clag.min * 60, config.clag.max * 60);
 
-/**
- * 记录禁言历史
- */
-export function recordMute(session: Session, targetId: string, duration: number, sourceUserId?: string): void {
-  const historyKey = `${session.platform}:${session.guildId}:${targetId}`
+    // 暴击效果
+    if (isCriticalHit) {
+      duration = Math.round(duration * 2);
+    }
 
-  // 使用缓存管理器存储禁言历史
-  globalCache.set(MUTE_HISTORY, historyKey, {
-    source: sourceUserId || session.userId,
-    timestamp: Date.now(),
-    duration
-  }, 7 * 24 * 60 * 60 * 1000)
-}
+    // 添加随机波动 (±15%)
+    if (randomVariation) {
+      const variation = Math.random() * 0.3 - 0.15;
+      duration = Math.round(duration * (1 + variation));
+    }
 
-/**
- * 获取用户名
- */
-export async function getUserName(session: Session, userId: string): Promise<string> {
-  if (userId === session.userId) return session.username
-  if (userId === 'system') return '系统'
+    // 确保最小5秒
+    return Math.max(5, duration);
+  }
 
-  // 尝试从缓存获取用户名
-  const cacheKey = `${session.platform}:${userId}:name`
-  const cachedName = globalCache.get<string>('usernames', cacheKey)
-  if (cachedName) return cachedName
+  /**
+   * 记录禁言历史
+   */
+  static recordMute(session: Session, targetId: string, duration: number, sourceUserId?: string): void {
+    const historyKey = `${session.platform}:${session.guildId}:${targetId}`;
 
-  try {
-    const user = await session.app.database.getUser(session.platform, userId)
-    const name = user?.name || userId
-
-    // 缓存用户名（1小时）
-    globalCache.set('usernames', cacheKey, name, 3600000)
-    return name
-  } catch {
-    return userId
+    globalCache.set(CACHE_KEYS.MUTE_HISTORY, historyKey, {
+      source: sourceUserId || session.userId,
+      timestamp: Date.now(),
+      duration
+    }, 7 * 24 * 60 * 60 * 1000); // 保存7天
   }
 }
 
 /**
- * 显示特效消息
+ * 时间工具类
  */
-export async function showEffectMessage(
-  session: Session,
-  targetId: string,
-  isCritical: boolean,
-  isTargetSelected: boolean
-): Promise<void> {
-  let messageCategory: string
-  let messageType: string
-  const variables: Record<string, string> = {}
-
-  variables.target = await getUserName(session, targetId)
-  variables.user = session.username
-
-  if (isCritical) {
-    messageCategory = 'effects'
-    messageType = 'critical'
-  } else if (isTargetSelected) {
-    messageCategory = 'effects'
-    messageType = 'success'
-  } else {
-    messageCategory = 'effects'
-    messageType = 'randomTarget'
+export class TimeUtil {
+  /**
+   * 格式化秒数为分钟和秒
+   */
+  static formatDuration(seconds: number): { minutes: number, seconds: number } {
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    return { minutes, seconds: remainingSeconds }
   }
 
-  const message = await session.send(getRandomMessage(
-    messageCategory as keyof typeof import('./messages').templates,
-    messageType,
-    variables
-  ))
-  await autoRecall(session, message, 5000)
+  /**
+   * 检查当前时间是否在指定时间范围内
+   */
+  static isWithinTimeRange(timeRange: string): boolean {
+    const [startStr, endStr] = timeRange.split('-')
+    const startHour = parseInt(startStr, 10)
+    const endHour = parseInt(endStr, 10)
+
+    const now = new Date()
+    const currentHour = now.getHours()
+
+    // 处理跨日的时间范围
+    if (endHour < startHour) {
+      // 例如22-6表示晚上10点到次日早上6点
+      return currentHour >= startHour || currentHour < endHour
+    } else {
+      // 例如10-18表示上午10点到下午6点
+      return currentHour >= startHour && currentHour < endHour
+    }
+  }
 }
 
 /**
- * 格式化时间
+ * 随机工具类
  */
-export function formatDuration(seconds: number): { minutes: number, seconds: number } {
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = seconds % 60
-  return { minutes, seconds: remainingSeconds }
+export class RandomUtil {
+  /**
+   * 基于概率判断是否触发
+   */
+  static withProbability(probability: number): boolean {
+    return Math.random() < probability;
+  }
+
+  /**
+   * 从数组中随机选择元素
+   */
+  static choose<T>(arr: T[]): T {
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
 }
+
+// 保留兼容性导出
+export const getRandomMessage = MessageService.getRandomMessage;
+export const autoRecall = MessageService.autoRecall;
+export const getGuildMembers = UserService.getGuildMembers;
+export const resolveMuteTarget = UserService.resolveTarget;
+export const getUserName = UserService.getUserName;
+export const calculateMuteDuration = MuteService.calculateDuration;
+export const recordMute = MuteService.recordMute;
+export const formatDuration = TimeUtil.formatDuration;
+export const showEffectMessage = MessageService.showEffect;
