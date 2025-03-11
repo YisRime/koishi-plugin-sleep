@@ -8,8 +8,7 @@ import { autoRecall } from './utils'
  */
 export const enum SleepMode {
   STATIC = 'static',
-  UNTIL = 'until',
-  RANDOM = 'random'
+  UNTIL = 'until'
 }
 
 /**
@@ -19,8 +18,6 @@ export interface SleepConfig {
   type: SleepMode
   duration?: number
   until?: string
-  min?: number
-  max?: number
 }
 
 /**
@@ -29,25 +26,18 @@ export interface SleepConfig {
  * @param {Config} config - 插件配置
  */
 export function initializeSleepCommand(ctx: Context, config: Config) {
-  // 验证时间格式
-  if (config.sleep.type === SleepMode.UNTIL &&
-    !/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(config.sleep.until)) {
-    throw new Error('无效的睡眠截止时间格式')
-  }
-
   /**
-   * 精致睡眠命令 - 支持三种模式
+   * 精致睡眠命令 - 支持两种模式
    */
-  ctx.command('sleep')
+  ctx.command('sleep', '精致睡眠')
     .alias('jzsm', '精致睡眠')
     .channelFields(['guildId'])
+    .usage('让自己安静入睡，在特定时间内自动禁言')
     .action(async ({ session }) => {
       try {
-        // 验证时间段
         const now = new Date();
         const currentHour = now.getHours();
         const [startHour, endHour] = config.sleep.allowedTimeRange.split('-').map(Number);
-
         const isTimeAllowed = startHour > endHour
           ? (currentHour >= startHour || currentHour <= endHour)  // 跨夜情况，如20-8
           : (currentHour >= startHour && currentHour <= endHour); // 普通情况，如9-18
@@ -59,38 +49,25 @@ export function initializeSleepCommand(ctx: Context, config: Config) {
           await autoRecall(session, message);
           return;
         }
-        // 计算禁言时长
         let duration: number;
         const sleep = config.sleep;
-
         switch (sleep.type) {
           case SleepMode.STATIC:
             duration = Math.max(1, sleep.duration) * 60 * 60;
             break;
-
           case SleepMode.UNTIL:
             const [hours, minutes] = sleep.until.split(':').map(Number);
-            if (isNaN(hours) || isNaN(minutes)) {
-              throw new Error('无效的时间格式');
-            }
             const endTime = new Date(now);
             endTime.setHours(hours, minutes, 0, 0);
             if (endTime <= now) endTime.setDate(endTime.getDate() + 1);
-            duration = Math.max(1, Math.floor((endTime.getTime() - now.getTime()) / 1000)); // 转为秒
-            break;
-
-          case SleepMode.RANDOM:
-            const min = Math.max(1, sleep.min) * 60 * 60;
-            const max = Math.max(sleep.min, sleep.max) * 60 * 60;
-            duration = Math.floor(Math.random() * (max - min + 1) + min);
+            duration = Math.max(1, Math.floor((endTime.getTime() - now.getTime()) / 1000));
             break;
         }
-        // 执行禁言
         await session.bot.muteGuildMember(session.guildId, session.userId, duration * 1000);
-        return "晚安，快去睡觉吧，祝你好梦";
+        return '晚安好梦~';
       } catch (error) {
         console.error('Sleep command error:', error);
-        const message = await session.send("失败，请检查机器人是否有权限");
+        const message = await session.send('失败，请检查机器人权限');
         await autoRecall(session, message);
         return;
       }

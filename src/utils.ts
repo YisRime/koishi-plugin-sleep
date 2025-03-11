@@ -1,46 +1,11 @@
-import { Session, Context, Random, h } from 'koishi'
+import { Session, Random, h } from 'koishi'
 import { Config } from './index'
+import { getRandomMessage } from './messages'
+import globalCache from './cache'
 
-/**
- * 缓存条目类型定义
- */
-export type CacheEntry = { data: string[]; expiry: number }
-
-/**
- * 成员列表缓存
- * 键: platform:guildId
- * 值: {data: 成员ID列表, expiry: 过期时间}
- */
-export const memberCache = new Map<string, CacheEntry>()
-
-/**
- * 初始化缓存清理任务
- * 定期清理过期的缓存数据
- */
-export function initializeCacheCleanup() {
-  setInterval(() => {
-    const now = Date.now()
-    memberCache.forEach((entry, key) => {
-      if (entry.expiry <= now) memberCache.delete(key)
-    })
-  }, 24 * 60 * 60 * 1000)
-}
-
-// 禁言历史记录缓存
-const muteHistory = new Map<string, {
-  source: string
-  timestamp: number
-  duration: number
-}>()
-
-// 特殊日期事件
-const SEASONAL_EVENTS = [
-  { month: 1, day: 1, key: 'new_year', multiplier: 0.5 },       // 元旦
-  { month: 4, day: 1, key: 'april_fool', multiplier: 2 },       // 愚人节
-  { month: 10, day: 31, key: 'halloween', multiplier: 1.5 },    // 万圣节
-  { month: 12, day: 25, key: 'christmas', multiplier: 0.8 },    // 圣诞节
-  { month: 12, day: 31, key: 'new_year_eve', multiplier: 1.2 }, // 跨年
-]
+// 缓存存储名称常量
+const MEMBER_CACHE = 'members'
+const MUTE_HISTORY = 'muteHistory'
 
 /**
  * 自动撤回消息
@@ -66,34 +31,32 @@ export const autoRecall = async (session: Session, message: any, delay = 10000) 
  */
 export const getGuildMembers = async (session: Session): Promise<string[]> => {
   const cacheKey = `${session.platform}:${session.guildId}`
-  const cached = memberCache.get(cacheKey)
-  // 优先使用缓存
-  if (cached?.expiry > Date.now()) {
-    return cached.data;
+  // 检查缓存
+  const cachedMembers = globalCache.get<string[]>(MEMBER_CACHE, cacheKey)
+  if (cachedMembers) {
+    return cachedMembers
   }
 
   try {
-    const members: string[] = [];
+    const members: string[] = []
     // 使用异步迭代器获取成员列表
     for await (const member of session.bot.getGuildMemberIter(session.guildId)) {
-      const userId = member.user?.id;
+      const userId = member.user?.id
       if (userId && String(userId) !== String(session.selfId)) {
-        members.push(String(userId));
+        members.push(String(userId))
       }
     }
-    // 缓存结果
+
+    // 缓存结果 (一小时过期)
     if (members.length > 0) {
-      memberCache.set(cacheKey, {
-        data: members,
-        expiry: Date.now() + 3600000
-      });
-      return members;
+      globalCache.set(MEMBER_CACHE, cacheKey, members, 3600000)
+      return members
     }
 
-    return [session.userId];
+    return [session.userId]
   } catch (error) {
-    console.error('Failed to get guild members:', error);
-    return [session.userId];
+    console.error('Failed to get guild members:', error)
+    return [session.userId]
   }
 }
 
@@ -119,9 +82,17 @@ export const mute = async (session: Session, targetId: string, duration: number,
         console.warn('Failed to get username:', e)
       }
 
-      const msg = await session.send(isSelf
-        ? `已将你禁言${min}分钟${sec}秒`
-        : `已将${username}禁言${min}分钟${sec}秒`)
+      const messageContent = getRandomMessage(
+        'mute',
+        isSelf ? 'self' : 'success',
+        {
+          target: username,
+          minutes: String(min),
+          seconds: String(sec)
+        }
+      )
+
+      const msg = await session.send(messageContent)
       await autoRecall(session, msg)
     }
     return true
@@ -129,57 +100,6 @@ export const mute = async (session: Session, targetId: string, duration: number,
     console.error('Mute operation failed:', error)
     return false
   }
-}
-
-/**
- * 获取当前适用的季节效果
- */
-function getCurrentSeasonalEffect(): { key: string, multiplier: number } | null {
-  const now = new Date()
-  const month = now.getMonth() + 1
-  const day = now.getDate()
-
-  return SEASONAL_EVENTS.find(e => e.month === month && e.day === day) || null
-}
-
-/**
- * 初始化季节性事件
- */
-export function initializeSeasonalEvents(ctx: Context): void {
-  let lastDate = new Date().getDate()
-  checkForSeasonalEvent(ctx)
-
-  ctx.setInterval(() => {
-    const now = new Date()
-    const currentDate = now.getDate()
-    if (currentDate !== lastDate) {
-      lastDate = currentDate
-      checkForSeasonalEvent(ctx)
-    }
-  }, 60 * 1000)
-}
-
-/**
- * 检查是否是特殊节日
- */
-function checkForSeasonalEvent(ctx: Context): void {
-  const now = new Date()
-  const month = now.getMonth() + 1
-  const day = now.getDate()
-
-  const event = SEASONAL_EVENTS.find(e => e.month === month && e.day === day)
-  if (!event) return
-
-  const messages = {
-    'new_year': '元旦快乐！今天被禁言的时间减半～',
-    'april_fool': '愚人节快乐！今天被禁言的时间翻倍！',
-    'halloween': '万圣节快乐！禁言时间增加50%，好好享受"安静"的万圣夜吧！',
-    'christmas': '圣诞快乐！禁言时间减少20%，这是圣诞老人的礼物～',
-    'new_year_eve': '跨年夜！禁言时间增加20%，安静地迎接新的一年吧！',
-    'generic': '今天是特殊日子，禁言效果有所变化！'
-  }
-
-  ctx.broadcast(messages[event.key] || messages.generic)
 }
 
 /**
@@ -197,22 +117,18 @@ export async function resolveMuteTarget(session: Session, targetInput?: string):
  */
 export function calculateMuteDuration(config: Config, baseDuration?: number, isCriticalHit = false): number {
   let duration = baseDuration ? baseDuration * 60 : new Random().int(config.clag.min * 60, config.clag.max * 60)
-  // 特殊节日效果
-  if (config.clag.enableSeasonalEvents) {
-    const effect = getCurrentSeasonalEffect()
-    if (effect) {
-      duration = Math.round(duration * effect.multiplier)
-    }
-  }
+
   // 暴击效果
   if (isCriticalHit) {
     duration = Math.round(duration * 2)
   }
+
   // 添加随机波动 (±15%)
   const variation = Math.random() * 0.3 - 0.15
   duration = Math.round(duration * (1 + variation))
-  // 确保最小5秒，最大设定上限
-  return Math.max(5, Math.min(duration, config.clag.maxAllowedDuration * 60))
+
+  // 确保最小5秒
+  return Math.max(5, duration)
 }
 
 /**
@@ -221,14 +137,11 @@ export function calculateMuteDuration(config: Config, baseDuration?: number, isC
 export function recordMute(session: Session, targetId: string, duration: number, sourceUserId?: string): void {
   const historyKey = `${session.platform}:${session.guildId}:${targetId}`
 
-  muteHistory.set(historyKey, {
+  // 使用缓存管理器存储禁言历史
+  globalCache.set(MUTE_HISTORY, historyKey, {
     source: sourceUserId || session.userId,
     timestamp: Date.now(),
     duration
-  })
-  // 设置过期清理
-  setTimeout(() => {
-    muteHistory.delete(historyKey)
   }, 7 * 24 * 60 * 60 * 1000)
 }
 
@@ -239,24 +152,21 @@ export async function getUserName(session: Session, userId: string): Promise<str
   if (userId === session.userId) return session.username
   if (userId === 'system') return '系统'
 
+  // 尝试从缓存获取用户名
+  const cacheKey = `${session.platform}:${userId}:name`
+  const cachedName = globalCache.get<string>('usernames', cacheKey)
+  if (cachedName) return cachedName
+
   try {
     const user = await session.app.database.getUser(session.platform, userId)
-    return user?.name || userId
+    const name = user?.name || userId
+
+    // 缓存用户名（1小时）
+    globalCache.set('usernames', cacheKey, name, 3600000)
+    return name
   } catch {
     return userId
   }
-}
-
-/**
- * 清理过期记录
- */
-export function cleanExpiredRecords(): void {
-  const now = Date.now()
-  muteHistory.forEach((record, key) => {
-    if (now - record.timestamp > 7 * 24 * 60 * 60 * 1000) {
-      muteHistory.delete(key)
-    }
-  })
 }
 
 /**
@@ -268,40 +178,30 @@ export async function showEffectMessage(
   isCritical: boolean,
   isTargetSelected: boolean
 ): Promise<void> {
-  let effectMessage: string
-  const targetName = await getUserName(session, targetId)
+  let messageCategory: string
+  let messageType: string
+  const variables: Record<string, string> = {}
+
+  variables.target = await getUserName(session, targetId)
+  variables.user = session.username
 
   if (isCritical) {
-    effectMessage = `暴击！禁言时间翻倍！`
+    messageCategory = 'effects'
+    messageType = 'critical'
   } else if (isTargetSelected) {
-    effectMessage = `${session.username}成功施放了禁言术！`
+    messageCategory = 'effects'
+    messageType = 'success'
   } else {
-    effectMessage = `命运之轮转动，${targetName}成为了被选中的幸运儿！`
+    messageCategory = 'effects'
+    messageType = 'randomTarget'
   }
 
-  const message = await session.send(effectMessage)
+  const message = await session.send(getRandomMessage(
+    messageCategory as keyof typeof import('./messages').templates,
+    messageType,
+    variables
+  ))
   await autoRecall(session, message, 5000)
-}
-
-/**
- * 选择随机目标(排除指定用户)
- */
-export async function selectRandomTarget(
-  session: Session,
-  excludeIds: string[] = []
-): Promise<string | null> {
-  try {
-    const members = await getGuildMembers(session)
-    const validMembers = members.filter(id =>
-      !excludeIds.includes(id) && id !== session.selfId
-    )
-
-    if (!validMembers.length) return null
-    return validMembers[new Random().int(0, validMembers.length - 1)]
-  } catch (error) {
-    console.error('Failed to select random target:', error)
-    return null
-  }
 }
 
 /**
@@ -311,110 +211,4 @@ export function formatDuration(seconds: number): { minutes: number, seconds: num
   const minutes = Math.floor(seconds / 60)
   const remainingSeconds = seconds % 60
   return { minutes, seconds: remainingSeconds }
-}
-
-/**
- * 选择禁言参与者
- * @param session 会话对象
- * @param members 成员列表
- * @param count 参与人数
- * @param includeInitiator 是否包含发起者
- */
-export async function selectParticipants(
-  session: Session,
-  members: string[],
-  count: number,
-  includeInitiator: boolean = true
-): Promise<string[]> {
-  // 参与人数不能超过有效成员数
-  const participantCount = Math.min(count, members.length)
-  const participants: string[] = []
-  // 确保发起者在内(如果需要)
-  if (includeInitiator && !members.includes(session.userId)) {
-    participants.push(session.userId)
-  }
-  // 筛选可用成员
-  const availableMembers = includeInitiator
-    ? members.filter(id => id !== session.userId)
-    : [...members]
-  // 随机选择参与者
-  while (participants.length < participantCount && availableMembers.length > 0) {
-    const index = new Random().int(0, availableMembers.length - 1)
-    participants.push(availableMembers[index])
-    availableMembers.splice(index, 1)
-  }
-  // 打乱顺序
-  return participants.sort(() => Math.random() - 0.5)
-}
-
-/**
- * 模拟轮盘旋转效果
- * @param session 会话对象
- * @param participants 参与者
- */
-export async function simulateRoulette(session: Session, participants: string[]): Promise<void> {
-  const iterations = new Random().int(2, 4)
-  for (let i = 0; i < iterations; i++) {
-    const randomIndex = new Random().int(0, participants.length - 1)
-    const currentName = await getUserName(session, participants[randomIndex])
-    const indicatorMsg = await session.send(`指针指向了...${currentName}`)
-    await autoRecall(session, indicatorMsg, 800)
-    await new Promise(resolve => setTimeout(resolve, 1000))
-  }
-}
-
-/**
- * 选择最终目标
- * @param participants 参与者列表
- * @param config 配置
- */
-export function selectFinalTarget(
-  participants: string[],
-  config: Config
-): { targetId: string; isCritical: boolean } {
-  // 随机选择最终禁言目标
-  const victimIndex = new Random().int(0, participants.length - 1)
-  const targetId = participants[victimIndex]
-  // 随机决定是否暴击
-  const isCritical = config.clag.enableSpecialEffects &&
-                    new Random().bool(config.clag.criticalHitProbability)
-
-  return { targetId, isCritical }
-}
-
-/**
- * 执行禁言操作并处理结果
- * @param session 会话对象
- * @param config 配置
- * @param targetId 目标ID
- * @param duration 持续时间
- * @param isCritical 是否暴击
- */
-export async function executeAndRecordMute(
-  session: Session,
-  config: Config,
-  targetId: string,
-  isCritical: boolean = false
-): Promise<boolean> {
-  // 计算最终禁言时长
-  const finalDuration = calculateMuteDuration(config, undefined, isCritical)
-  // 执行禁言
-  const success = await mute(session, targetId, finalDuration, config.clag.enableMessage)
-
-  if (success) {
-    // 显示特效消息
-    if (config.clag.enableSpecialEffects) {
-      await showEffectMessage(session, targetId, isCritical, true)
-    }
-    // 记录禁言历史
-    recordMute(session, targetId, finalDuration, session.userId)
-    // 发送最终结果
-    const victimName = await getUserName(session, targetId)
-    const time = formatDuration(finalDuration)
-    await session.send(
-      `最终结果：${victimName}被禁言${time.minutes}分钟${time.seconds}秒 ${isCritical ? "暴击！禁言时间翻倍！" : ""}`
-    )
-  }
-
-  return success
 }

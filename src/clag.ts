@@ -1,40 +1,45 @@
 import { Context, Session, Random } from 'koishi'
-import { Config, ClagFeature } from './index'
+import { Config } from './index'
 import {
   mute,
   autoRecall,
   calculateMuteDuration,
   recordMute,
   resolveMuteTarget,
-  initializeSeasonalEvents,
   showEffectMessage,
-  cleanExpiredRecords,
-  getGuildMembers,
-  getUserName,
-  selectParticipants,
-  simulateRoulette,
-  selectFinalTarget,
-  executeAndRecordMute
+  getUserName
 } from './utils'
+import { getRandomMessage } from './messages'
+
+/**
+ * 禁言目标类型
+ */
+enum MuteTargetType {
+  SELF = 'self',    // 禁言自己（包含主动和被动反弹）
+  SPECIFIED = 'specified'  // 禁言他人
+}
 
 /**
  * 初始化clag功能
  */
 export function initializeClagFeatures(ctx: Context, config: Config) {
-  initializeCleaner(ctx)
+  /**
+   * 随机禁言命令
+   */
+  const clag = ctx.command('clag [target:text] [duration:number]', '随机禁言')
+    .channelFields(['guildId'])
+    .usage(`随机禁言自己或他人，支持多种特殊效果`)
+    .action(async ({ session }, target, duration) => {
+      await handleMuteOperation(session, config, target, duration)
+    })
 
-  if (config.clag.enableSeasonalEvents) {
-    initializeSeasonalEvents(ctx)
-  }
-}
-
-/**
- * 初始化清理器，定期清理过期数据
- */
-function initializeCleaner(ctx: Context) {
-  ctx.setInterval(() => {
-    cleanExpiredRecords()
-  }, 3600 * 1000)
+  /**
+   * 禁言自己子命令
+   */
+  clag.subcommand('.me [duration:number]', '禁言自己')
+    .action(async ({ session }, duration) => {
+      await handleMuteOperation(session, config, session.userId, duration, true)
+    })
 }
 
 /**
@@ -45,117 +50,120 @@ export async function handleMuteOperation(
   config: Config,
   targetInput?: string,
   duration?: number,
-  mode: ClagFeature = ClagFeature.NORMAL,
-  rouletteSize?: number
+  forceSelf: boolean = false
 ): Promise<void> {
-  // 验证禁言时长
-  if (duration && duration > config.clag.maxAllowedDuration) {
-    const message = await session.send(session.text('commands.clag.messages.errors.duration_too_long', [config.clag.maxAllowedDuration]))
-    await autoRecall(session, message)
-    return
-  }
-  // 根据不同模式处理
-  if (mode === ClagFeature.ROULETTE) {
-    await executeRouletteMode(session, config, rouletteSize || config.clag.rouletteSize)
-    return
-  }
-  // 处理普通禁言模式
-  await handleNormalMode(session, config, targetInput, duration)
+  // 解析目标ID
+  const inputTargetId = targetInput ? await resolveMuteTarget(session, targetInput) : session.userId
+
+  // 确定最终的禁言目标类型和是否为反弹
+  const { targetType, isBackfire } = await determineTargetType(session, inputTargetId, config, forceSelf)
+
+  // 根据目标类型执行禁言
+  await executeTargetedMute(session, config, targetType, inputTargetId, duration, isBackfire)
 }
 
 /**
- * 处理普通禁言模式
+ * 确定禁言目标类型
  */
-async function handleNormalMode(
+async function determineTargetType(
+  session: Session,
+  inputTargetId: string,
+  config: Config,
+  forceSelf: boolean
+): Promise<{ targetType: MuteTargetType, isBackfire: boolean }> {
+  // 如果强制自己或输入的就是自己
+  if (forceSelf || inputTargetId === session.userId) {
+    return { targetType: MuteTargetType.SELF, isBackfire: false };
+  }
+
+  // 随机决定是否改变目标（反弹到自己）
+  const random = new Random();
+  if (random.bool(config.clag.targetChangeRate)) {
+    // 禁言反弹到自己
+    return { targetType: MuteTargetType.SELF, isBackfire: true };
+  } else {
+    // 禁言指定的目标
+    return { targetType: MuteTargetType.SPECIFIED, isBackfire: false };
+  }
+}
+
+/**
+ * 执行针对特定目标的禁言
+ */
+async function executeTargetedMute(
   session: Session,
   config: Config,
-  targetInput?: string,
-  duration?: number
+  targetType: MuteTargetType,
+  inputTargetId: string,
+  duration?: number,
+  isBackfire: boolean = false
 ): Promise<void> {
-  // 解析目标 - 如果未提供目标，默认为自己
-  const inputTargetId = targetInput ? await resolveMuteTarget(session, targetInput) : session.userId
-  // 如果是自己禁言自己，直接执行
-  if (inputTargetId === session.userId) {
-    const muteDuration = calculateMuteDuration(config, duration)
-    await mute(session, session.userId, muteDuration, config.clag.enableMessage)
-    // 显示自我惩罚提示
-    if (config.clag.enableSpecialEffects) {
-      const message = await session.send("自食其果！")
-      await autoRecall(session, message, 3000)
-    }
-    return
-  }
-
-  // 随机决定是否禁言成功
-  if (!new Random().bool(config.clag.probability)) {
-    // 禁言失败，反弹到发起者
-    const muteDuration = calculateMuteDuration(config, duration)
-    const success = await mute(session, session.userId, muteDuration, config.clag.enableMessage)
-
-    if (success && config.clag.enableSpecialEffects) {
-      const message = await session.send(`哎呀！${session.username}的禁言魔法反弹了！`)
-      await autoRecall(session, message, 5000)
-      // 记录禁言历史
-      recordMute(session, session.userId, muteDuration)
-    }
-    return
-  }
-
-  // 确定最终目标
-  const finalTargetId = inputTargetId;
   // 随机决定是否暴击
-  const isCritical = config.clag.enableSpecialEffects && new Random().bool(config.clag.criticalHitProbability)
-  // 执行禁言
+  const isCritical = new Random().bool(config.clag.criticalHitProbability)
+
+  // 计算禁言时长
   const muteDuration = calculateMuteDuration(config, duration, isCritical)
-  const success = await mute(session, finalTargetId, muteDuration, config.clag.enableMessage)
+
+  // 根据不同的目标类型执行禁言
+  switch (targetType) {
+    case MuteTargetType.SELF:
+      await executeSelfMute(session, config, muteDuration, inputTargetId, isBackfire)
+      break
+
+    case MuteTargetType.SPECIFIED:
+      await executeSpecifiedTargetMute(session, config, inputTargetId, muteDuration, isCritical)
+      break
+  }
+}
+
+/**
+ * 执行禁言自己（包括反弹效果）
+ */
+async function executeSelfMute(
+  session: Session,
+  config: Config,
+  muteDuration: number,
+  targetId?: string,
+  isBackfire: boolean = false
+): Promise<void> {
+  const success = await mute(session, session.userId, muteDuration, config.clag.enableMessage)
 
   if (success) {
-    // 特殊效果提示
-    if (config.clag.enableSpecialEffects) {
-      await showEffectMessage(session, finalTargetId, isCritical, inputTargetId !== null)
+    let message;
+
+    if (isBackfire && targetId) {
+      // 显示反弹效果消息
+      const targetName = await getUserName(session, targetId)
+      message = await session.send(getRandomMessage('mute', 'backfire', {
+        user: session.username,
+        target: targetName
+      }))
+      await autoRecall(session, message, 5000)
+    } else {
+      // 显示自我惩罚提示
+      message = await session.send(getRandomMessage('effects', 'selfPunish', {}))
+      await autoRecall(session, message, 3000)
     }
+
     // 记录禁言历史
-    recordMute(session, finalTargetId, muteDuration, session.userId)
+    recordMute(session, session.userId, muteDuration)
   }
 }
 
 /**
- * 执行禁言轮盘
+ * 执行对指定目标的禁言
  */
-export async function executeRouletteMode(
+async function executeSpecifiedTargetMute(
   session: Session,
   config: Config,
-  count: number = 3
-): Promise<{ success: boolean, targetId?: string }> {
-  try {
-    const validMembers = await getGuildMembers(session)
-    // 检查是否有足够的成员
-    if (validMembers.length < 2) {
-      const message = await session.send("群内成员不足，无法启动轮盘")
-      await autoRecall(session, message)
-      return { success: false }
-    }
-    // 选择轮盘参与者
-    const participants = await selectParticipants(session, validMembers, count, true)
-    // 发送轮盘启动消息
-    const participantsNames = await Promise.all(participants.map(id => getUserName(session, id)))
-    await session.send(`禁言轮盘已启动！参与者：${participantsNames.join('、')}`)
-    // 模拟转盘效果
-    await simulateRoulette(session, participants)
-    // 选择最终目标
-    const targetInfo = selectFinalTarget(participants, config)
-    if (!targetInfo.targetId) return { success: false }
-    // 执行禁言并记录
-    const success = await executeAndRecordMute(
-      session,
-      config,
-      targetInfo.targetId,
-      targetInfo.isCritical
-    )
+  targetId: string,
+  muteDuration: number,
+  isCritical: boolean
+): Promise<void> {
+  const success = await mute(session, targetId, muteDuration, config.clag.enableMessage)
 
-    return { success, targetId: targetInfo.targetId }
-  } catch (error) {
-    console.error('Roulette mode failed:', error)
-    return { success: false }
+  if (success) {
+    await showEffectMessage(session, targetId, isCritical, true)
+    recordMute(session, targetId, muteDuration, session.userId)
   }
 }
