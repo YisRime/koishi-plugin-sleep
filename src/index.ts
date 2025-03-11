@@ -3,6 +3,8 @@ import { handleMuteOperation, initializeClagFeatures } from './clag'
 import { autoRecall } from './utils'
 import { SleepMode, SleepConfig, initializeSleepCommand } from './sleep'
 import { initializeCache } from './cache'
+import { initializeRouletteCommand } from './roulette'
+import { initializeMagicMuteFeature } from './magicmute'
 import './messages'
 
 export const name = 'sleep'
@@ -20,7 +22,14 @@ export interface ClagConfig {
   max: number
   criticalHitProbability: number
   enableMessage: boolean
-  targetChangeRate: number // 整合后的概率参数
+  targetChangeRate: number
+}
+
+export interface MagicMuteConfig {
+  enabled: boolean
+  activeTime: string
+  minProbability: number
+  maxProbability: number
 }
 
 export interface Config {
@@ -28,6 +37,7 @@ export interface Config {
     allowedTimeRange: string
   }
   clag: ClagConfig
+  magicMute: MagicMuteConfig
 }
 
 // Schema配置定义
@@ -47,7 +57,7 @@ export const Config: Schema<Config> = Schema.object({
         until: Schema.string().default('08:00').pattern(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).description('禁言截止时间(HH:MM)'),
       })
     ]),
-  ]),
+  ]).description('精致睡眠配置'),
   clag: Schema.object({
     min: Schema.number().default(0.5).description('最小时长（分钟）'),
     max: Schema.number().default(10).description('最大时长（分钟）'),
@@ -55,6 +65,12 @@ export const Config: Schema<Config> = Schema.object({
     criticalHitProbability: Schema.number().default(0.1).min(0).max(1).description('暴击概率'),
     targetChangeRate: Schema.number().default(0.6).min(0).max(1).description('反弹概率'),
   }).description('禁言配置'),
+  magicMute: Schema.object({
+    enabled: Schema.boolean().default(false).description('启用神秘口球魔法'),
+    activeTime: Schema.string().default('22-6').pattern(/^([01]?[0-9]|2[0-3])-([01]?[0-9]|2[0-3])$/).description('活跃时间段(HH-HH)'),
+    minProbability: Schema.number().default(1).min(0.1).max(15).step(0.1).description('最小触发概率(%)'),
+    maxProbability: Schema.number().default(15).min(1).max(30).step(0.1).description('最大触发概率(%)'),
+  }).description('神秘口球魔法配置'),
 })
 
 /**
@@ -64,4 +80,6 @@ export async function apply(ctx: Context, config: Config) {
   initializeCache(ctx)
   initializeSleepCommand(ctx, config)
   initializeClagFeatures(ctx, config)
+  initializeRouletteCommand(ctx, config)
+  initializeMagicMuteFeature(ctx, config)
 }
