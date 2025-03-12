@@ -8,10 +8,6 @@ import './messages'
 
 export const name = 'sleep'
 
-/**
- * 禁言功能类型枚举
- * @enum {string}
- */
 export const enum ClagFeature {
   NORMAL = 'normal'
 }
@@ -39,7 +35,6 @@ export interface Config {
   magicMute: MagicMuteConfig
 }
 
-// Schema配置定义
 export const Config: Schema<Config> = Schema.object({
   sleep: Schema.intersect([
     Schema.object({
@@ -72,9 +67,6 @@ export const Config: Schema<Config> = Schema.object({
   }).description('神秘口球魔法配置'),
 })
 
-/**
- * 插件主函数
- */
 export async function apply(ctx: Context, config: Config) {
   initializeCache(ctx)
   initializeSleepCommand(ctx, config)

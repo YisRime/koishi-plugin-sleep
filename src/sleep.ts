@@ -32,19 +32,14 @@ export function initializeSleepCommand(ctx: Context, config: Config) {
   ctx.command('sleep', '精致睡眠')
     .alias('jzsm', '精致睡眠')
     .channelFields(['guildId'])
-    .usage('让自己安静入睡，在特定时间内自动禁言')
+    .usage('禁言自己到第二天早晨，安静入睡')
     .action(async ({ session }) => {
       try {
         const now = new Date();
-        const currentHour = now.getHours();
-
-        // 使用TimeUtil验证时间范围
         const isTimeAllowed = TimeUtil.isWithinTimeRange(config.sleep.allowedTimeRange);
 
         if (!isTimeAllowed) {
-          const message = await session.send(
-            `当前时间不在允许的时间段内(${config.sleep.allowedTimeRange})`
-          );
+          const message = await session.send(`当前时间不在睡眠时间段内(${config.sleep.allowedTimeRange})`);
           await MessageService.autoRecall(session, message);
           return;
         }
@@ -63,10 +58,9 @@ export function initializeSleepCommand(ctx: Context, config: Config) {
             break;
         }
         await session.bot.muteGuildMember(session.guildId, session.userId, duration * 1000);
-        return '晚安好梦~';
+        return '晚安，愿你今晚得享美梦~';
       } catch (error) {
-        console.error('Sleep command error:', error);
-        const message = await session.send('失败，请检查机器人权限');
+        const message = await session.send('禁言失败，请检查机器人权限');
         await MessageService.autoRecall(session, message);
         return;
       }
