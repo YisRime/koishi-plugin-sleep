@@ -27,7 +27,7 @@ export function initializeRouletteCommand(ctx: Context, config: Config) {
 
   ctx.command('clag.roulette [...options]', '禁言轮盘游戏')
     .channelFields(['guildId'])
-    .option('players', '-p <count:number>', { fallback: 3 })
+    .option('players', '-p <count:number>', { fallback: 10 })
     .option('bullets', '-b <count:number>', { fallback: 1 })
     .option('duration', '-d <minutes:number>', { fallback: 0 })
     .option('timeout', '-t <seconds:number>', { fallback: 60 })
@@ -133,7 +133,10 @@ async function executeRoulette(session: Session, sessionKey: string) {
 
   const result = spinRoulette(participants, rouletteSession.bulletCount)
   await announceRouletteResult(session, result)
-  await executeRouletteMutes(session, result.victims, rouletteSession.duration)
+
+  // 获取正确的配置对象
+  const config = session.app.config.get('sleep')
+  await executeRouletteMutes(session, config, result.victims, rouletteSession.duration)
 }
 
 function spinRoulette(participants: string[], bulletCount: number): RouletteResult {
@@ -155,10 +158,9 @@ async function announceRouletteResult(session: Session, result: RouletteResult) 
   )
 }
 
-async function executeRouletteMutes(session: Session, victims: string[], duration?: number) {
+async function executeRouletteMutes(session: Session, config: Config, victims: string[], duration?: number) {
   for (const victim of victims) {
     try {
-      const config = session.app.config.get('sleep');
       const isCritical = RandomUtil.isCritical(config.clag.criticalHitProbability);
 
       await MuteUtils.mute(session, config, {
