@@ -27,7 +27,7 @@ export function initializeRouletteCommand(ctx: Context, config: Config) {
 
   ctx.command('clag.roulette [...options]', '禁言轮盘游戏')
     .channelFields(['guildId'])
-    .option('players', '-p <count:number>', { fallback: 10 })
+    .option('players', '-p <count:number>', { fallback: 3 })
     .option('bullets', '-b <count:number>', { fallback: 1 })
     .option('duration', '-d <minutes:number>', { fallback: 0 })
     .option('timeout', '-t <seconds:number>', { fallback: 60 })
@@ -134,8 +134,6 @@ async function executeRoulette(session: Session, config: Config, sessionKey: str
 
   const result = spinRoulette(participants, rouletteSession.bulletCount)
   await announceRouletteResult(session, result)
-
-  // 直接使用传入的配置对象
   await executeRouletteMutes(session, config, result.victims, rouletteSession.duration)
 }
 
