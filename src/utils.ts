@@ -183,11 +183,44 @@ export class MuteService {
     } = options;
 
     try {
-      await session.bot.muteGuildMember(session.guildId, targetId, duration * 1000)
+      // 检查必要参数
+      if (!session.guildId) {
+        console.error('Mute failed: Missing guildId')
+        return false
+      }
+
+      // 检查是否为自身
+      const isSelf = targetId === session.userId
+
+      // 尝试使用多种可能的API调用禁言
+      try {
+        // 第一种尝试: 标准API
+        await session.bot.muteGuildMember(session.guildId, targetId, duration * 1000)
+      } catch (err) {
+        // 第二种尝试: 部分平台使用不同API
+        try {
+          // @ts-ignore - 某些平台特殊API
+          await session.bot.mute(session.guildId, targetId, duration)
+        } catch (err2) {
+          // 第三种尝试: 其他可能的API变种
+          try {
+            // @ts-ignore - 兼容其他平台API
+            await session.bot.setGuildMemberMute(session.guildId, targetId, true, duration)
+          } catch (err3) {
+            // 如果所有尝试都失败，则抛出错误
+            throw new Error(`无法执行禁言操作: ${err?.message || err2?.message || err3?.message || '未知错误'}`)
+          }
+        }
+      }
 
       // 删除触发消息
       if (deleteOriginalMessage && session.messageId) {
-        await session.bot.deleteMessage(session.channelId, session.messageId)
+        try {
+          await session.bot.deleteMessage(session.channelId, session.messageId)
+        } catch (deleteError) {
+          console.warn('Failed to delete original message:', deleteError)
+          // 继续执行，不要因为无法删除消息而中断流程
+        }
       }
 
       // 记录禁言历史
@@ -198,7 +231,6 @@ export class MuteService {
       // 发送禁言提示
       if (enableMessage) {
         const { minutes, seconds } = TimeUtil.formatDuration(duration)
-        const isSelf = targetId === session.userId
 
         let username = await UserService.getUserName(session, targetId)
 
@@ -219,6 +251,16 @@ export class MuteService {
       return true
     } catch (error) {
       console.error('Mute operation failed:', error)
+      // 如果配置了消息提示，则发送失败消息
+      if (enableMessage) {
+        try {
+          const errorMsg = error instanceof Error ? error.message : String(error)
+          const msg = await session.send(`禁言操作失败: ${errorMsg}`)
+          await MessageService.autoRecall(session, msg, 5000)
+        } catch (e) {
+          console.error('Failed to send error message:', e)
+        }
+      }
       return false
     }
   }
