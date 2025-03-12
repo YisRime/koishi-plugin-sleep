@@ -40,7 +40,7 @@ export function initializeRouletteCommand(ctx: Context, config: Config) {
       const bulletCount = Math.min(Math.max(1, options.bullets), maxPlayers - 1)
       const waitTime = Math.min(Math.max(10, options.timeout), 300)
 
-      await createRouletteSession(session, {
+      await createRouletteSession(session, config, {
         maxParticipants: maxPlayers,
         bulletCount: bulletCount,
         duration: options.duration > 0 ? options.duration : undefined,
@@ -52,7 +52,7 @@ export function initializeRouletteCommand(ctx: Context, config: Config) {
 
   ctx.middleware(async (session, next) => {
     if (session.content !== '参与') return next()
-    if (joinRouletteSession(session)) {
+    if (joinRouletteSession(session, config)) {
       const msg = await session.send(`${session.username} 加入了禁言轮盘！`)
       await MessageService.autoRecall(session, msg, 3000)
       return
@@ -71,6 +71,7 @@ export function initializeRouletteCommand(ctx: Context, config: Config) {
 
 async function createRouletteSession(
   session: Session,
+  config: Config,
   options: {
     maxParticipants: number,
     bulletCount: number,
@@ -88,12 +89,12 @@ async function createRouletteSession(
     maxParticipants: options.maxParticipants,
     bulletCount: options.bulletCount,
     duration: options.duration,
-    timeout: setTimeout(() => executeRoulette(session, sessionKey), options.timeout * 1000)
+    timeout: setTimeout(() => executeRoulette(session, config, sessionKey), options.timeout * 1000)
   }
   globalCache.set(ROULETTE_SESSIONS, sessionKey, rouletteSession, 3600000)
 }
 
-function joinRouletteSession(session: Session): boolean {
+function joinRouletteSession(session: Session, config: Config): boolean {
   const sessionKey = getSessionKey(session)
   const rouletteSession = globalCache.get<RouletteSession>(ROULETTE_SESSIONS, sessionKey)
   if (!rouletteSession || rouletteSession.participants.has(session.userId)) return false
@@ -101,7 +102,7 @@ function joinRouletteSession(session: Session): boolean {
   rouletteSession.participants.add(session.userId)
   if (rouletteSession.participants.size >= rouletteSession.maxParticipants) {
     clearTimeout(rouletteSession.timeout)
-    executeRoulette(session, sessionKey)
+    executeRoulette(session, config, sessionKey)
     return true
   }
 
@@ -119,7 +120,7 @@ function cancelRouletteSession(session: Session): boolean {
   return true
 }
 
-async function executeRoulette(session: Session, sessionKey: string) {
+async function executeRoulette(session: Session, config: Config, sessionKey: string) {
   const rouletteSession = globalCache.get<RouletteSession>(ROULETTE_SESSIONS, sessionKey)
   if (!rouletteSession) return
 
@@ -134,8 +135,7 @@ async function executeRoulette(session: Session, sessionKey: string) {
   const result = spinRoulette(participants, rouletteSession.bulletCount)
   await announceRouletteResult(session, result)
 
-  // 获取正确的配置对象
-  const config = session.app.config.get('sleep')
+  // 直接使用传入的配置对象
   await executeRouletteMutes(session, config, result.victims, rouletteSession.duration)
 }
 
