@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-sleep",
   "description": "一些禁言娱乐功能与精致睡眠，祝您今晚得享美梦~",
-  "version": "1.0.13",
+  "version": "1.1.0",
   "contributors": [
     "Yis_Rime <yis_rime@outlook.com>"
   ],
