@@ -1,6 +1,8 @@
-# Sleep & Clag 插件
+# koishi-plugin-sleep
 
-一个功能丰富的睡眠与禁言管理插件，包含精致睡眠和随机禁言功能。
+[![npm](https://img.shields.io/npm/v/koishi-plugin-sleep?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-sleep)
+
+一些禁言娱乐功能与精致睡眠，祝您今晚得享美梦~
 
 ## 功能介绍
 
