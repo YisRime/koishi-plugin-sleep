@@ -17,7 +17,6 @@
     "dist"
   ],
   "license": "GPL-3.0",
-  "scripts": {},
   "keywords": [
     "chatbot",
     "koishi",
@@ -28,7 +27,6 @@
     "精致睡眠",
     "随机禁言"
   ],
-  "devDependencies": {},
   "peerDependencies": {
     "koishi": "^4.18.7"
   }
