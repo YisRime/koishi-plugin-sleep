@@ -2,79 +2,48 @@
 
 [![npm](https://img.shields.io/npm/v/koishi-plugin-sleep?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-sleep)
 
-一些禁言娱乐功能与精致睡眠，祝您今晚得享美梦~
+提供丰富的禁言娱乐功能：包括精致睡眠、禁言轮盘、禁言反弹等等
 
-## 功能介绍
+## 功能简介
 
-### 精致睡眠
+- **精致睡眠**：指定时间段内可用，自动禁言自己一段时间，适合睡觉打卡。
+- **禁言指令（clag）**：尝试禁言他人，有概率反弹禁言自己，支持多种模式。
+- **禁言轮盘（biu）**：类似俄罗斯轮盘，有概率禁言自己，支持概率递增。
+- **自定义消息**：支持自定义禁言成功、失败等提示消息。
 
-帮助用户在特定时间段进行自我禁言，培养良好作息习惯。
+## 指令说明
 
-- 支持多种模式：固定时长、指定截止时间、随机时长
-- 可设置允许使用的时间段
-- 理想的晚间自律工具
+- `clag <目标> [时长]`：尝试禁言目标用户，时长单位为分钟（可选）。
+- `clag.biu`：禁言轮盘，随机决定是否禁言自己。
+- `sleep`：进入精致睡眠模式，自动禁言自己。
 
-### 随机禁言 (Clag)
+## 配置项
 
-为群聊增添乐趣的随机禁言功能，拥有多种创意玩法。
+| 配置项             | 说明                         | 默认值/示例           |
+|--------------------|------------------------------|-----------------------|
+| enabled            | 启用精致睡眠                 | false                 |
+| sleepMode          | 睡眠模式（static/until）      | static                |
+| sleepTimeRange     | 允许睡眠的时间段（HH-HH）     | 20-8                  |
+| sleepDuration      | 固定睡眠时长（小时）          | 8                     |
+| sleepUntil         | 睡眠截止时间（HH:MM）         | 08:00                 |
+| clagEnabled        | 启用禁言指令                  | false                 |
+| clagMode           | 禁言模式（random_success/both_mute） | random_success |
+| clagProbability    | 禁言成功基础概率              | 0.5                   |
+| clagMaxDuration    | 最大禁言时长（分钟）          | 15                    |
+| biuEnabled         | 启用禁言轮盘                  | false                 |
+| biuMode            | 轮盘模式（fixed/increasing）  | fixed                 |
+| biuProbability     | 轮盘初始禁言概率              | 0.2                   |
+| biuMaxDuration     | 轮盘最大禁言时长（分钟）      | 15                    |
+| sleepSuccessMsg    | 精致睡眠提示消息              | 见源码                |
+| clagSuccessMsg     | 禁言成功提示消息              | 见源码                |
+| clagFailureMsg     | 禁言失败提示消息              | 见源码                |
+| clagSelfMuteMsg    | 禁言自我提示消息              | 见源码                |
+| biuSuccessMsg      | 轮盘逃过提示消息              | 见源码                |
+| biuFailureMsg      | 轮盘失败提示消息              | 见源码                |
 
-#### 基础功能
+## 消息模板占位符
 
-- 随机禁言：随机选择目标或随机反弹
-- 自我禁言：禁言自己
-- 指定禁言：禁言特定用户
-
-#### 高级功能
-
-1. **禁言轮盘**
-   - 随机从参与者中选择一名"幸运儿"禁言
-   - 命令: `clag.roulette [参与人数]`
-   - 默认包含指令发起者和随机的其他成员
-
-2. **连锁禁言**
-   - 被禁言后获得"复仇权"，可以对其他人使用连锁禁言
-   - 命令: `clag.chain @用户`
-   - 连锁禁言威力比普通禁言更强
-
-3. **特殊效果**
-   - 暴击效果：随机触发，禁言时间翻倍
-   - 免疫护盾：被禁言后小概率获得临时免疫权
-   - 节日特效：特殊日期有独特的禁言效果和提示语
-
-## 使用方法
-
-sleep - 根据配置的模式进行睡眠禁言
-clag [时长] - 随机禁言(自己或他人)
-clag.me [时长] - 禁言自己
-clag.user @用户 [时长] - 禁言指定用户
-clag.roulette [人数] - 禁言轮盘(默认3人)
-clag.chain @用户 - 使用复仇禁言
-
-## 配置说明
-
-### 睡眠设置
-
-- `type`: 睡眠模式 (`static`/`until`/`random`)
-- `duration`: 固定禁言时长（小时）
-- `until`: 禁言截止时间(HH:MM)
-- `min`/`max`: 随机模式的最短/最长时长（小时）
-
-### Clag 设置
-
-- `min`/`max`: 最小/最大禁言时长（分钟）
-- `enableSpecialEffects`: 是否启用特殊效果
-- `enableRoulette`: 是否启用禁言轮盘
-- `enableChainReaction`: 是否启用连锁禁言
-- `enableSeasonalEvents`: 是否启用节日特效
-- `immunityProbability`: 获得免疫的概率
-- `criticalHitProbability`: 暴击概率
-- `rouletteSize`: 默认轮盘人数
-- `chainReactionExpiry`: 连锁禁言权利有效期（小时）
-
-### 通用设置
-
-- `allowedTimeRange`: 允许睡眠的时间段(HH-HH)
-- `maxAllowedDuration`: 最大普通禁言限制（分钟）
-- `enableMessage`: 是否启用禁言提示
-- `enableMuteOthers`: 是否允许禁言他人
-- `probability`: 禁言成功概率
+- `{at}`：目标用户的 at 元素
+- `{username}`：用户名
+- `{duration}`：禁言时长
+- `{selfDuration}`：自身禁言时长（仅部分模式）

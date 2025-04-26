@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-sleep",
-  "description": "一些禁言娱乐功能与精致睡眠，祝您今晚得享美梦~",
-  "version": "1.1.0",
+  "description": "提供丰富的禁言娱乐功能：包括精致睡眠、禁言轮盘、禁言反弹等等",
+  "version": "1.1.1",
   "contributors": [
     "Yis_Rime <yis_rime@outlook.com>"
   ],

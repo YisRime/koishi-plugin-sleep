@@ -1,143 +1,97 @@
-import { Context, Session } from 'koishi'
+import { Context } from 'koishi'
 import { Config } from './index'
-import { UserService, MessageService, RandomUtil } from './utils'
-import { MuteUtils, MuteTargetType } from './muteUtils'
+import { Utils } from './utils'
+import { registerbiu } from './biu'
 
-export function initializeClagFeatures(ctx: Context, config: Config) {
-  const clag = ctx.command('clag [target:text] [duration:number]', '随机禁言')
+export const enum ClagMode {
+  RANDOM_SUCCESS = 'random_success',
+  BOTH_MUTE = 'both_mute'
+}
+
+export function registerClag(ctx: Context, config: Config) {
+  const cmd = ctx.command('clag <target:text> [duration:number]', '禁言他人')
     .channelFields(['guildId'])
-    .usage(`随机禁言自己或他人，支持多种特殊效果`)
+    .usage('禁言他人，但自己也有可能遭殃')
     .action(async ({ session }, target, duration) => {
-      await handleMuteOperation(session, config, target, duration);
-    });
-
-  clag.subcommand('.me [duration:number]', '禁言自己')
-    .action(async ({ session }, duration) => {
-      await handleMuteOperation(session, config, session.userId, duration, true);
-    });
-}
-
-/**
- * 处理禁言操作
- */
-export async function handleMuteOperation(
-  session: Session,
-  config: Config,
-  targetInput?: string,
-  duration?: number,
-  forceSelf: boolean = false
-): Promise<void> {
-  try {
-    // 解析目标ID
-    const targetId = targetInput ?
-      await UserService.resolveTarget(session, targetInput) :
-      session.userId;
-
-    // 确定禁言目标类型
-    const { targetType, isBackfire } = MuteUtils.determineTargetType(
-      targetId,
-      session.userId,
-      config.clag.targetChangeRate,
-      forceSelf
-    );
-
-    // 执行禁言
-    await executeMuteByType(session, config, {
-      targetType,
-      targetId,
-      originalTargetId: targetInput ? targetId : null,
-      duration,
-      isBackfire
-    });
-  } catch (error) {
-    console.error('禁言操作失败:', error);
-    await MessageService.sendAndRecall(session, '执行禁言时发生错误', 5000);
+      if (!await Utils.checkEnvironment(session)) return
+      // 解析目标用户
+      const targetId = Utils.extractUserId(target)
+      if (!targetId) {
+        const error = await session.send('请输入正确的用户')
+        await Utils.scheduleRecall(session, error)
+        return
+      }
+      // 计算禁言时长(秒)
+      let muteSeconds: number
+      const maxDuration = config.clagMaxDuration
+      if (duration) {
+        // 用户指定的时长不受最大禁言时长限制
+        muteSeconds = duration * 60
+      } else {
+        // 随机生成的时长受最大禁言时长限制
+        muteSeconds = Math.floor(Math.random() * Math.min(maxDuration, 10)) * 60
+      }
+      // 获取目标用户名
+      let targetUsername = target;
+      try {
+        const targetInfo = await session.bot.getGuildMember(session.guildId, targetId);
+        targetUsername = targetInfo?.nick || targetInfo?.user?.name || target;
+      } catch (e) {}
+      try {
+        // 根据模式执行禁言
+        if (config.clagMode === ClagMode.RANDOM_SUCCESS) {
+          // 动态计算禁言成功概率：时长越大，成功率越低
+          const baseProbability = config.clagProbability
+          const durationMinutes = muteSeconds / 60
+          // 使用单一公式计算概率
+          const successProbability = Math.max(0.01, baseProbability * (15 / (durationMinutes + 15)))
+          const success = Math.random() < successProbability
+          if (success) {
+            await session.bot.muteGuildMember(session.guildId, targetId, muteSeconds * 1000);
+            const message = Utils.getRandomMessage(
+              config.clagSuccessMsg, `禁言对方${Utils.formatDuration(muteSeconds)}，你逃过一劫！`
+            );
+            return Utils.formatMessage(
+              message,
+              targetId,
+              targetUsername,
+              Utils.formatDuration(muteSeconds)
+            );
+          } else {
+            await session.bot.muteGuildMember(session.guildId, session.userId, muteSeconds * 1000);
+            const message = Utils.getRandomMessage(
+              config.clagFailureMsg, `禁言失败！作为惩罚，禁言你${Utils.formatDuration(muteSeconds)}`
+            );
+            return Utils.formatMessage(
+              message,
+              session.userId,
+              session.username,
+              Utils.formatDuration(muteSeconds)
+            );
+          }
+        } else {
+          // 双禁言模式
+          await session.bot.muteGuildMember(session.guildId, targetId, muteSeconds * 1000);
+          const selfDuration = Math.floor(Math.random() * muteSeconds);
+          await session.bot.muteGuildMember(session.guildId, session.userId, selfDuration * 1000);
+          const message = Utils.getRandomMessage(
+            config.clagSelfMuteMsg, `禁言对方${Utils.formatDuration(muteSeconds)}，作为代价，禁言你${Utils.formatDuration(selfDuration)}`
+          );
+          return Utils.formatMessage(
+            message,
+            targetId,
+            targetUsername,
+            Utils.formatDuration(muteSeconds),
+            Utils.formatDuration(selfDuration)
+          );
+        }
+      } catch (error) {
+        return
+      }
+    })
+  // 如果轮盘功能启用，注册为子命令
+  if (config.biuEnabled) {
+    registerbiu(cmd, config)
   }
-}
-
-/**
- * 根据类型执行禁言
- */
-async function executeMuteByType(
-  session: Session,
-  config: Config,
-  params: {
-    targetType: MuteTargetType,
-    targetId: string,
-    originalTargetId: string | null,
-    duration?: number,
-    isBackfire: boolean
-  }
-): Promise<void> {
-  const { targetType, targetId, originalTargetId, duration, isBackfire } = params;
-  const isCritical = RandomUtil.isCritical(config.clag.criticalHitProbability);
-
-  switch (targetType) {
-    case MuteTargetType.SELF:
-      await executeSelfMute(session, config, originalTargetId, duration, isBackfire, isCritical);
-      break;
-
-    case MuteTargetType.SPECIFIED:
-      await executeTargetMute(session, config, targetId, duration, isCritical);
-      break;
-  }
-}
-
-/**
- * 执行自我禁言
- */
-async function executeSelfMute(
-  session: Session,
-  config: Config,
-  originalTargetId: string | null,
-  duration?: number,
-  isBackfire: boolean = false,
-  isCritical: boolean = false
-): Promise<void> {
-  // 消息配置
-  let messageCategory = 'effects';
-  let messageType = 'selfPunish';
-  const customVars: Record<string, string> = {};
-
-  // 如果是反弹效果
-  if (isBackfire && originalTargetId) {
-    messageCategory = 'mute';
-    messageType = 'backfire';
-
-    // 获取原目标用户名
-    const targetName = await UserService.getUserName(session, originalTargetId);
-    customVars.target = targetName;
-  }
-
-  await MuteUtils.mute(session, config, {
-    targetId: session.userId,
-    duration,
-    isCritical,
-    messageOptions: {
-      category: messageCategory,
-      type: messageType,
-      customVars
-    }
-  });
-}
-
-/**
- * 执行目标禁言
- */
-async function executeTargetMute(
-  session: Session,
-  config: Config,
-  targetId: string,
-  duration?: number,
-  isCritical: boolean = false
-): Promise<void> {
-  await MuteUtils.mute(session, config, {
-    targetId,
-    duration,
-    isCritical,
-    messageOptions: {
-      category: 'effects',
-      type: isCritical ? 'critical' : 'success'
-    }
-  });
+  return cmd
 }
