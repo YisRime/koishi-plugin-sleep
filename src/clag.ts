@@ -13,8 +13,6 @@ export function registerClag(ctx: Context, config: Config) {
     .channelFields(['guildId'])
     .usage('禁言他人，但自己也有可能遭殃')
     .action(async ({ session }, target, duration) => {
-      if (!await Utils.checkEnvironment(session)) return
-      // 解析目标用户
       const targetId = Utils.extractUserId(target)
       if (!targetId) {
         const error = await session.send('请输入正确的用户')

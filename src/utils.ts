@@ -40,22 +40,6 @@ export class Utils {
   }
 
   /**
-   * 检查命令执行环境
-   */
-  static async checkEnvironment(session: Session): Promise<boolean> {
-    const roles = session.event?.member?.roles
-    const hasMutePermission = roles.length === 0 || roles.some(role =>
-      ['admin', 'owner', 'op'].some(kw => String(role).toLowerCase().includes(kw))
-    )
-    if (!hasMutePermission) {
-      const error = await session.send('权限不足，无法执行禁言')
-      await this.scheduleRecall(session, error)
-      return false
-    }
-    return true
-  }
-
-  /**
    * 将秒数格式化为天时分秒
    * @param seconds 总秒数
    * @param simple 是否只显示最大单位

@@ -19,7 +19,6 @@ export function registerSleep(ctx: Context, config: Config) {
     .channelFields(['guildId'])
     .usage('禁言自己到第二天，安静入睡')
     .action(async ({ session }) => {
-      if (!await Utils.checkEnvironment(session)) return
       // 检查时间范围
       const sleepRange = config.sleepTimeRange
       if (!Utils.isInTimeRange(sleepRange)) {

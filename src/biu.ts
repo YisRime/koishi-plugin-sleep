@@ -26,7 +26,6 @@ export function registerbiu(cmd: Command, config: Config) {
   cmd.subcommand('.biu', '禁言轮盘')
     .usage('玩一次轮盘游戏，有一定概率被禁言')
     .action(async ({ session }) => {
-      if (!await Utils.checkEnvironment(session)) return;
       // 随机决定是否禁言
       if (Math.random() < currentProbability) {
         try {
