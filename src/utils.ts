@@ -1,94 +1,127 @@
 import { Session, h } from 'koishi'
+import { ProbMode } from './repeat'
 
+/**
+ * 工具类，提供各种辅助函数
+ */
 export class Utils {
   /**
-   * 检查当前时间是否在指定时间范围内
-   * @param range 时间范围，格式为"HH-HH"
+   * 检查当前时间是否在指定范围内
    */
   static isInTimeRange(range: string): boolean {
-    const [start, end] = range.split('-').map(h => parseInt(h, 10))
+    if (!range) return true
+    const [start, end] = range.split('-').map(Number)
     const hour = new Date().getHours()
-    return end < start ? (hour >= start || hour < end) : (hour >= start && hour < end)
+    return end < start ? hour >= start || hour < end : hour >= start && hour < end
   }
 
   /**
-   * 设置消息自动撤回
-   * @param session 会话对象
-   * @param msg 消息对象
-   * @param delay 延迟时间(毫秒)
+   * 从文本中获取用户ID
    */
-  static async scheduleRecall(session: Session, msg: any, delay = 10000) {
-    if (!msg) return
-    setTimeout(() => {
-      const messages = Array.isArray(msg) ? msg : [msg]
-      Promise.all(messages.map(m => {
-        const msgId = typeof m === 'string' ? m : m?.id
-        if (msgId) return session.bot.deleteMessage(session.channelId, msgId)
-      })).catch(() => {})
-    }, delay)
-  }
-
-  /**
-   * 解析用户ID (支持@元素、@数字格式或纯数字)
-   */
-  static extractUserId(target: string): string | null {
+  static getUserId(target: string): string | null {
     if (!target) return null
     const atId = h.select(h.parse(target), 'at')[0]?.attrs?.id
-    if (atId) return atId
-    const userId = target.match(/@(\d+)/)?.[1] || (/^\d+$/.test(target.trim()) ? target.trim() : null)
+    const userId = atId || target.match(/@(\d+)/)?.[1] || (/^\d+$/.test(target.trim()) ? target.trim() : null)
     return userId && /^\d{5,10}$/.test(userId) ? userId : null
   }
 
   /**
-   * 将秒数格式化为天时分秒
-   * @param seconds 总秒数
-   * @param simple 是否只显示最大单位
+   * 将秒数格式化为可读的时间字符串
    */
-  static formatDuration(seconds: number, simple = false): string {
-    const units = [
-      { value: 86400, name: '天' },
-      { value: 3600, name: '小时' },
-      { value: 60, name: '分钟' },
-      { value: 1, name: '秒' }
-    ];
-    let result = '';
-    let remaining = Math.floor(seconds);
-    for (const { value, name } of units) {
-      const count = Math.floor(remaining / value);
-      if (count > 0) {
-        result += `${count}${name}`;
-        remaining %= value;
-        if (simple) return result;
+  static formatTime(seconds: number): string {
+    if (seconds < 60) return `${seconds}秒`
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟`
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}小时${seconds % 3600 > 0 ? this.formatTime(seconds % 3600) : ''}`
+    return `${Math.floor(seconds / 86400)}天${seconds % 86400 > 0 ? this.formatTime(seconds % 86400) : ''}`
+  }
+
+  /**
+   * 消息格式化函数，替换占位符
+   */
+  static formatMessage(
+    messages: string | string[] | Array<{Success: string, Failure: string}> | undefined,
+    targetId: string, username: string, duration: number, isSuccess: boolean = true): string {
+    if (!messages || (Array.isArray(messages) && messages.length === 0)) return ''
+    // 选择消息模板
+    let message = '';
+    if (typeof messages === 'string') {
+      message = messages;
+    } else if (Array.isArray(messages)) {
+      if (typeof messages[0] === 'string') {
+        message = messages[Math.floor(Math.random() * messages.length)] as string;
+      } else if (typeof messages[0] === 'object') {
+        const template = messages[Math.floor(Math.random() * messages.length)] as {Success: string, Failure: string};
+        message = isSuccess ? template.Success : template.Failure;
       }
     }
-    return result;
-  }
-
-  /**
-   * 从消息数组中随机选择一条消息
-   * @param messages 消息数组或单条消息
-   * @param defaultMsg 默认消息（当messages未定义或为空数组时使用）
-   */
-  static getRandomMessage(messages: string | string[], defaultMsg: string): string {
-    if (!messages) return defaultMsg
-    if (typeof messages === 'string') return messages
-    if (messages.length === 0) return defaultMsg
-    return messages[Math.floor(Math.random() * messages.length)]
-  }
-
-  /**
-   * 格式化消息，替换占位符
-   * @param message 消息模板
-   * @param targetId 目标用户ID
-   * @param username 用户名
-   * @param duration 禁言时长
-   * @param selfDuration 自身禁言时长(可选)
-   */
-  static formatMessage(message: string, targetId: string, username: string, duration: string, selfDuration?: string): string {
+    // 替换占位符
     return message
       .replace(/\{at\}/g, `<at id="${targetId}"/>`)
       .replace(/\{username\}/g, username)
-      .replace(/\{duration\}/g, duration)
-      .replace(/\{selfDuration\}/g, selfDuration || '');
+      .replace(/\{duration\}/g, this.formatTime(Math.floor(duration)));
+  }
+
+  /**
+   * 延迟删除消息
+   */
+  static delayDelete(session: Session, msg: any, delay = 10000): void {
+    if (!msg) return;
+    setTimeout(() => {
+      const messages = Array.isArray(msg) ? msg : [msg];
+      Promise.all(messages.map(m => {
+        const msgId = typeof m === 'string' ? m : m?.id;
+        return msgId && session.bot.deleteMessage(session.channelId, msgId);
+      })).catch(() => {});
+    }, delay);
+  }
+
+  /**
+   * 执行禁言并发送消息的综合方法
+   */
+  static async muteAndSend(session: Session, userId: string, duration: number, messages: any, username: string,
+    showMessage: boolean = true, isSuccess: boolean = true, autoDelete: boolean = false): Promise<string> {
+    try {
+      await session.bot.muteGuildMember(session.guildId, userId, duration * 1000);
+      if (showMessage) {
+        const message = this.formatMessage(messages, userId, username, duration, isSuccess);
+        if (message) {
+          const sentMsg = await session.send(message);
+          if (autoDelete) this.delayDelete(session, sentMsg, 10000);
+          return message;
+        }
+      }
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
+   * 发送消息并处理显示/删除逻辑
+   */
+  static async sendMessage(session: Session, message: string, showMessage: boolean = true,
+    autoDelete: boolean = false, deleteDelay: number = 10000): Promise<string> {
+    if (!message || !showMessage) return '';
+    try {
+      const sentMsg = await session.send(message);
+      if (autoDelete) this.delayDelete(session, sentMsg, deleteDelay);
+      return showMessage ? message : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
+   * 概率管理器类，用于管理禁言概率相关逻辑
+   */
+  static createProbabilityManager(config: any) {
+    let prob = config.probabilityInitial;
+    return {
+      get: () => config.probabilityMode === ProbMode.FIXED ? config.probabilityInitial : prob,
+      reset: () => { if (config.probabilityMode === ProbMode.INCREASING) prob = config.probabilityInitial; },
+      increase: () => { if (config.probabilityMode === ProbMode.INCREASING) prob = Math.min(prob * 1.5, 1); },
+      getRate: (minutes: number) => 1 / (1 + Math.exp((minutes / 60 - 30) / 15)),
+      getRepeatRate: (count: number) => 1 / (1 + Math.exp(-(count - 5) / 1.2))
+    };
   }
 }
