@@ -82,7 +82,12 @@ export function setupMonitor(ctx: Context, config: any) {
         }
         // 执行禁言
         for (const userId of targets) {
-          await Utils.muteAndSend(session, userId, duration, config.Message,session.username, config.showMessage, true);
+          let targetName = userId;
+          try {
+            const info = await session.bot.getGuildMember(session.guildId, userId);
+            targetName = info?.nick || info?.user?.name || userId;
+          } catch {}
+          await Utils.muteAndSend(session, userId, duration, config.Message, targetName, config.showMessage, true);
         }
         // 重置状态
         state.count = 0;

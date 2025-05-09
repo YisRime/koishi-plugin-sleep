@@ -119,9 +119,9 @@ export class Utils {
     return {
       get: () => config.probabilityMode === ProbMode.FIXED ? config.probabilityInitial : prob,
       reset: () => { if (config.probabilityMode === ProbMode.INCREASING) prob = config.probabilityInitial; },
-      increase: () => { if (config.probabilityMode === ProbMode.INCREASING) prob = Math.min(prob * 1.5, 1); },
-      getRate: (minutes: number) => 1 / (1 + Math.exp((minutes / 60 - 30) / 15)),
-      getRepeatRate: (count: number) => 1 / (1 + Math.exp(-(count - 5) / 1.2))
+      increase: () => { if (config.probabilityMode === ProbMode.INCREASING) prob = Math.min(prob * 1.3, 1); },
+      getRate: (minutes: number) => 1 / (1 + Math.exp((minutes / 60 - 30) / 25)),
+      getRepeatRate: (count: number) => 1 / (1 + Math.exp(-(count - 7) / 2.0))
     };
   }
 }
