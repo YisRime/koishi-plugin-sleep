@@ -73,7 +73,7 @@ export const Config: Schema<Config> = Schema.intersect([
   }).description('开关配置'),
   Schema.object({
     maxDuration: Schema.number().description('最大禁言时长（分钟）').default(15).min(1),
-    probabilityInitial: Schema.number().description('初始概率').default(0.2).min(0).max(1),
+    probabilityInitial: Schema.number().description('初始概率').default(0.05).min(0).max(1),
     probabilityMode: Schema.union([
       Schema.const(ProbMode.FIXED).description('固定'),
       Schema.const(ProbMode.INCREASING).description('递增')
