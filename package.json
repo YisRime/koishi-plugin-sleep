@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-sleep",
   "description": "提供丰富的禁言娱乐功能：精致睡眠、禁言反噬、复读监控等多种模式",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "contributors": [
     "Yis_Rime <yis_rime@outlook.com>"
   ],

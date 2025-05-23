@@ -21,7 +21,7 @@ export const usage = `
 
 /**
  * 插件配置接口
- * @interface
+ * @interface Config
  */
 export interface Config {
   /** 是否启用精致睡眠功能 */
@@ -120,8 +120,8 @@ export const Config: Schema<Config> = Schema.intersect([
 
 /**
  * 插件应用函数
- * @param ctx Koishi上下文
- * @param config 插件配置
+ * @param ctx - Koishi上下文
+ * @param config - 插件配置
  */
 export function apply(ctx: Context, config: Config) {
   if (config.enabled) registerSleep(ctx, config)
