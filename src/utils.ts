@@ -135,14 +135,16 @@ export class Utils {
    * @param config - 配置对象
    * @param username - 用户名
    * @param isSuccess - 是否成功
+   * @param messageConfig - 自定义消息配置
    * @returns 是否禁言成功
    */
   static async mute(session: Session, userId: string, duration: number, config: any,
-      username: string, isSuccess = true): Promise<boolean> {
+      username: string, isSuccess = true, messageConfig?: string | string[] | Array<{Success: string, Failure: string}>): Promise<boolean> {
     try {
       await session.bot.muteGuildMember(session.guildId || '', userId, duration * 1000)
       if (config.showMessage) {
-        const message = this.formatMessage(isSuccess ? config.Message : config.Message,  userId, username, duration, isSuccess)
+        const messages = messageConfig || config.Message
+        const message = this.formatMessage(messages, userId, username, duration, isSuccess)
         await this.sendMessage(session, message)
       }
       return true

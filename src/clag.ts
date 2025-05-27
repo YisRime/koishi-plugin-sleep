@@ -38,13 +38,13 @@ export function setupMute(ctx: Context, config: Config) {
         const willSucceed = Math.random() < probMgr.getRate(time)
         await Utils.mute(
           session, willSucceed ? targetId : session.userId, time,
-          config, willSucceed ? targetName : session.username, willSucceed
+          config, willSucceed ? targetName : session.username, willSucceed, config.Message
         )
       } else {
         // 两败俱伤模式
         const selfTime = Math.floor(Math.random() * (time - 30)) + 30
-        await Utils.mute(session, targetId, time, config, targetName, true)
-        await Utils.mute(session, session.userId, selfTime, config, session.username, false)
+        await Utils.mute(session, targetId, time, config, targetName, true, config.Message)
+        await Utils.mute(session, session.userId, selfTime, config, session.username, false, config.Message)
       }
     })
   // 禁言轮盘子命令
@@ -54,7 +54,7 @@ export function setupMute(ctx: Context, config: Config) {
       if (Math.random() < probMgr.get()) {
         const time = Utils.getRandomDuration(config.maxDuration)
         probMgr.reset()
-        await Utils.mute(session, session.userId, time, config, session.username, false)
+        await Utils.mute(session, session.userId, time, config, session.username, false, config.Message)
       } else {
         probMgr.increase()
         return '安全！'
@@ -65,7 +65,7 @@ export function setupMute(ctx: Context, config: Config) {
     .usage('禁言自己随机或指定时长')
     .action(async ({ session }, duration) => {
       const time = duration || Utils.getRandomDuration(config.maxDuration)
-      await Utils.mute(session, session.userId, time, config, session.username, false)
+      await Utils.mute(session, session.userId, time, config, session.username, false, config.Message)
     })
   return cmd
 }

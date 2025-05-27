@@ -40,6 +40,6 @@ export function registerSleep(ctx: Context, config: Config) {
         return
       }
       const duration = calculateSleepDuration(config.sleepSetting)
-      await Utils.mute(session, session.userId, duration, config, session.username)
+      await Utils.mute(session, session.userId, duration, config, session.username, true, config.sleepMsg)
     })
 }
